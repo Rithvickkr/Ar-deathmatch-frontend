@@ -20,10 +20,13 @@ export default function Game() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [lastShot, setLastShot] = useState<number>(0);
+    const [isReloading, setIsReloading] = useState(false);
     const socketRef = useRef<Socket | null>(null);
     const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
     const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-    const shootSoundRef = useRef<HTMLAudioElement>(null);
+    const sniperSoundRef = useRef<HTMLAudioElement>(null);
+    const pistolSoundRef = useRef<HTMLAudioElement>(null);
+    const shotgunSoundRef = useRef<HTMLAudioElement>(null);
     const hitSoundRef = useRef<HTMLAudioElement>(null);
     const netRef = useRef<any>(null);
     const [selectedGun, setSelectedGun] = useState<"sniper" | "pistol" | "shotgun">("pistol");
@@ -37,7 +40,7 @@ export default function Game() {
             setSelectedDeviceId(videoInputs[0]?.deviceId || null);
         });
 
-        socketRef.current = io("http://localhost:3001", {
+        socketRef.current = io("https://ar-game-server.onrender.com", {
             reconnection: true,
             reconnectionAttempts: 5,
         });
@@ -46,7 +49,7 @@ export default function Game() {
 
         socket.on("connect", () => {
             console.log("Connected as:", socket.id);
-            setSocketId(socket.id);
+            setSocketId(socket.id || null);
             socket.emit("joinGame");
         });
 
@@ -187,20 +190,37 @@ export default function Game() {
 
     const handleShoot = async () => {
         console.log("Shoot button pressed");
-        if (!socketRef.current || !netRef.current || !videoRef.current) {
-            console.log("Missing required refs:", {
+        if (!socketRef.current || !netRef.current || !videoRef.current || isReloading) {
+            console.log("Missing required refs or reloading:", {
                 socket: !!socketRef.current,
                 net: !!netRef.current,
                 video: !!videoRef.current,
+                isReloading,
             });
             return;
         }
 
         const now = Date.now();
-        if (now - lastShot < 500) {
+        // Cooldowns per gun
+        const cooldownTime = selectedGun === "pistol" ? 200 : selectedGun === "sniper" ? 400 : 600; // Pistol: 200ms, Sniper: 400ms, Shotgun: 600ms
+        if (now - lastShot < cooldownTime) {
             console.log("Cooldown active, skipping shot");
             return;
         }
+
+        // Play sound immediately on button press
+        if (selectedGun === "sniper" && sniperSoundRef.current) {
+            sniperSoundRef.current.currentTime = 0; // Reset to start
+            sniperSoundRef.current.play().catch((err) => console.error("Sniper shot sound error:", err));
+        } else if (selectedGun === "pistol" && pistolSoundRef.current) {
+            pistolSoundRef.current.currentTime = 0; // Reset to start
+            pistolSoundRef.current.play().catch((err) => console.error("Pistol shot sound error:", err));
+        } else if (selectedGun === "shotgun" && shotgunSoundRef.current) {
+            shotgunSoundRef.current.currentTime = 0; // Reset to start
+            shotgunSoundRef.current.play().catch((err) => console.error("Shotgun shot sound error:", err));
+        }
+
+        setIsReloading(true);
         setLastShot(now);
         console.log("Cooldown passed, processing shot");
 
@@ -230,12 +250,15 @@ export default function Game() {
             console.log("Hit detection center:", { centerX, centerY }, "Radius:", radius);
 
             // Log all keypoints for debugging
-            console.log("All keypoints:", poses.keypoints.map((k: any) => ({
-                part: k.part,
-                x: k.position.x,
-                y: k.position.y,
-                score: k.score
-            })));
+            console.log(
+                "All keypoints:",
+                poses.keypoints.map((k: any) => ({
+                    part: k.part,
+                    x: k.position.x,
+                    y: k.position.y,
+                    score: k.score,
+                }))
+            );
 
             // Calculate collective scores
             const headKeypoints = headParts
@@ -326,14 +349,25 @@ export default function Game() {
                 console.log("Final hit detected with damage:", damage);
                 socketRef.current.emit("shoot", { shooterId: socketId, damage });
                 console.log("Shoot event emitted");
-                if (shootSoundRef.current) {
-                    shootSoundRef.current.play().catch((err) => console.error("Shoot sound error:", err));
+                // Play gun sound again on confirmed hit
+                if (selectedGun === "sniper" && sniperSoundRef.current) {
+                    sniperSoundRef.current.currentTime = 0; // Reset to start
+                    sniperSoundRef.current.play().catch((err) => console.error("Sniper hit sound error:", err));
+                } else if (selectedGun === "pistol" && pistolSoundRef.current) {
+                    pistolSoundRef.current.currentTime = 0; // Reset to start
+                    pistolSoundRef.current.play().catch((err) => console.error("Pistol hit sound error:", err));
+                } else if (selectedGun === "shotgun" && shotgunSoundRef.current) {
+                    shotgunSoundRef.current.currentTime = 0; // Reset to start
+                    shotgunSoundRef.current.play().catch((err) => console.error("Shotgun hit sound error:", err));
                 }
             } else {
                 console.log("No head, torso, or lower body detected within crosshair radius with sufficient collective score");
             }
         } catch (err) {
             console.error("PoseNet error:", err);
+        } finally {
+            // Reset reloading after cooldown
+            setTimeout(() => setIsReloading(false), cooldownTime);
         }
     };
 
@@ -373,10 +407,10 @@ export default function Game() {
                     </div>
                     <div
                         className={`p-3 ${
-                            gameStatus === "ready" ? "bg-green-500" : "bg-orange-500"
+                            players.length === 2 ? "bg-green-500" : "bg-orange-500"
                         } rounded font-bold`}
                     >
-                        {gameStatus === "waiting" ? "Waiting for 2 Players" : "Game Ready!"}
+                        {players.length < 2 ? "Waiting for 2 Players" : "Game Ready!"}
                     </div>
                 </div>
             ) : gameStatus === "ready" ? (
@@ -437,12 +471,17 @@ export default function Game() {
                     </div>
                     <button
                         onClick={handleShoot}
-                        className="absolute bottom-10 left-1/2 transform -translate-x-1/2 bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-full shadow-lg"
+                        className={`absolute bottom-10 left-1/2 transform -translate-x-1/2 text-white font-bold py-3 px-6 rounded-full shadow-lg ${
+                            isReloading ? "bg-gray-500 cursor-not-allowed" : "bg-red-500 hover:bg-red-600"
+                        }`}
+                        disabled={isReloading}
                     >
-                        Shoot
+                        {isReloading ? "Reloading..." : "Shoot"}
                     </button>
-                    <audio ref={shootSoundRef} src="/shoot.wav" preload="auto" />
-                    <audio ref={hitSoundRef} src="/hit.wav" preload="auto" />
+                    <audio ref={sniperSoundRef} src="/sniper.mp3" preload="auto" />
+                    <audio ref={pistolSoundRef} src="/pistol.mp3" preload="auto" />
+                    <audio ref={shotgunSoundRef} src="/shotgun.mp3" preload="auto" />
+                    <audio ref={hitSoundRef} src="/hit.mp3" preload="auto" />
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
