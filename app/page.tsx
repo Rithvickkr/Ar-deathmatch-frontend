@@ -33,20 +33,7 @@ export default function Game() {
   const [selectedGun, setSelectedGun] = useState<"sniper" | "pistol" | "shotgun">("pistol");
 
   useEffect(() => {
-    // Get available video devices
-    navigator.mediaDevices
-      .enumerateDevices()
-      .then((devices: MediaDeviceInfo[]) => {
-        const videoInputs = devices.filter((device) => device.kind === "videoinput");
-        console.log("Available video devices:", videoInputs);
-        setVideoDevices(videoInputs);
-        setSelectedDeviceId(videoInputs[0]?.deviceId || null);
-      })
-      .catch((err: Error) => {
-        console.error("Error enumerating devices:", err);
-        setCameraError("Unable to access camera devices. Please check permissions.");
-      });
-
+    // Initialize socket
     socketRef.current = io("https://ar-game-server.onrender.com", {
       reconnection: true,
       reconnectionAttempts: 5,
@@ -78,6 +65,40 @@ export default function Game() {
     socketRef.current.on("connect_error", (err: { message: string }) => {
       console.error("Connection failed:", err.message);
     });
+
+    // Request camera permission early to populate device details
+    const requestCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        // Stop the stream immediately to avoid keeping the camera on
+        stream.getTracks().forEach((track) => track.stop());
+        // Now enumerate devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((device) => device.kind === "videoinput");
+        console.log("Available video devices:", videoInputs);
+        if (videoInputs.length === 0) {
+          setCameraError("No cameras found. Please connect a camera and try again.");
+          return;
+        }
+        setVideoDevices(videoInputs);
+        setSelectedDeviceId(videoInputs[0].deviceId || null);
+      } catch (err: unknown) {
+        console.error("Initial camera permission error:", err);
+        if (err instanceof DOMException) {
+          if (err.name === "NotAllowedError") {
+            setCameraError("Camera access denied. Please enable camera permissions in your browser settings.");
+          } else if (err.name === "NotFoundError") {
+            setCameraError("No camera found. Please ensure a camera is connected and try again.");
+          } else {
+            setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
+          }
+        } else {
+          setCameraError("Unexpected camera error. Please refresh and try again.");
+        }
+      }
+    };
+
+    requestCameraPermission();
 
     return () => {
       socketRef.current?.disconnect();
