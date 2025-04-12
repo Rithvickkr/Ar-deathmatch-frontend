@@ -86,7 +86,9 @@ export default function Game() {
         console.error("Initial camera permission error:", err);
         if (err instanceof DOMException) {
           if (err.name === "NotAllowedError") {
-            setCameraError("Camera access denied. Please enable camera permissions in your browser settings.");
+            setCameraError(
+              "Camera access denied. Please enable camera permissions in your browser or device settings."
+            );
           } else if (err.name === "NotFoundError") {
             setCameraError("No camera found. Please ensure a camera is connected and try again.");
           } else {
@@ -124,27 +126,34 @@ export default function Game() {
         console.log("Camera stream obtained");
         videoRef.current!.srcObject = stream;
         videoRef.current!.onloadedmetadata = () => {
-          videoRef.current!
-            .play()
-            .then(() => {
-              console.log("Video playing, dimensions:", {
-                width: videoRef.current!.videoWidth,
-                height: videoRef.current!.videoHeight,
+          // Delay play slightly to ensure stream is ready
+          setTimeout(() => {
+            videoRef.current!
+              .play()
+              .then(() => {
+                console.log("Video playing, dimensions:", {
+                  width: videoRef.current!.videoWidth,
+                  height: videoRef.current!.videoHeight,
+                });
+                initAR();
+              })
+              .catch((err: Error) => {
+                console.error("Video play error:", err);
+                setCameraError(
+                  `Failed to play camera stream: ${err.message}. Please ensure camera permissions are allowed in Safari settings and try again.`
+                );
               });
-              initAR();
-            })
-            .catch((err: Error) => {
-              console.error("Video play error:", err);
-              setCameraError("Failed to play camera stream. Please allow camera access and try again.");
-            });
+          }, 100); // 100ms delay for iOS compatibility
         };
       })
       .catch((err: Error) => {
         console.error("Camera access error:", err);
         if (err.name === "NotAllowedError") {
-          setCameraError("Camera access denied. Please enable camera permissions in your browser settings.");
+          setCameraError(
+            "Camera access denied. Please enable camera permissions in Safari or device settings (Settings > Safari > Camera)."
+          );
         } else if (err.name === "NotFoundError") {
-          setCameraError("No camera found. Please ensure a camera is connected and try again.");
+          setCameraError("No camera found. Please ensure a camera is available and try again.");
         } else {
           setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
         }
@@ -459,7 +468,12 @@ export default function Game() {
             </div>
           ) : (
             <>
-              <video ref={videoRef} className="absolute top-0 left-0 w-full h-full object-cover" />
+              <video
+                ref={videoRef}
+                className="absolute top-0 left-0 w-full h-full object-cover"
+                playsInline
+                muted
+              />
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
               </div>
