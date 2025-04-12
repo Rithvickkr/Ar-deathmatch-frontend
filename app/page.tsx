@@ -117,7 +117,6 @@ export default function Game() {
 
     const initAR = async (_socket: Socket) => {
       console.log("Initializing AR...");
-      const video = videoRef.current!;
       const canvas = canvasRef.current!;
 
       // Three.js setup
