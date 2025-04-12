@@ -52,7 +52,7 @@ export default function Game() {
         if (err instanceof DOMException) {
           if (err.name === "NotAllowedError") {
             setCameraError(
-              "Camera access denied. Please enable camera permissions in your browser or device settings."
+              "Camera access denied. Please enable camera permissions in your browser or device settings (Settings > Safari > Camera)."
             );
           } else if (err.name === "NotFoundError") {
             setCameraError("No camera found. Please ensure a camera is connected and try again.");
@@ -117,9 +117,9 @@ export default function Game() {
 
     console.log("Starting camera and AR with device:", selectedDeviceId);
 
-    navigator.mediaDevices
-      .getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } })
-      .then((stream: MediaStream) => {
+    const attemptCameraAccess = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } });
         console.log("Camera stream obtained");
         videoRef.current!.srcObject = stream;
         videoRef.current!.width = 640; // PoseNet processing size
@@ -137,23 +137,25 @@ export default function Game() {
             .catch((err: Error) => {
               console.error("Video play error:", err);
               setCameraError(
-                `Failed to play camera stream: ${err.message}. Please ensure camera permissions are allowed and try again.`
+                `Failed to play camera stream: ${err.message}. Please ensure camera permissions are allowed in Safari settings and try again.`
               );
             });
         };
-      })
-      .catch((err: Error) => {
+      } catch (err: unknown) {
         console.error("Camera access error:", err);
-        if (err.name === "NotAllowedError") {
+        if (err instanceof Error && err.name === "NotAllowedError") {
           setCameraError(
-            "Camera access denied. Please enable camera permissions in your browser or device settings."
+            "Camera access denied. Please enable camera permissions in Safari or device settings (Settings > Safari > Camera)."
           );
-        } else if (err.name === "NotFoundError") {
+        } else if (err instanceof Error && err.name === "NotFoundError") {
           setCameraError("No camera found. Please ensure a camera is available and try again.");
-        } else {
+        } else if (err instanceof Error) {
           setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
         }
-      });
+      }
+    };
+
+    attemptCameraAccess();
 
     const initAR = async () => {
       console.log("Initializing AR...");
@@ -459,6 +461,8 @@ export default function Game() {
               <video
                 ref={videoRef}
                 className="absolute top-0 left-0 w-full h-full object-cover"
+                playsInline
+                muted
               />
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
