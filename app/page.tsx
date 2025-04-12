@@ -115,7 +115,7 @@ export default function Game() {
       })
       .catch((err: Error) => console.error("Camera error:", err));
 
-    const initAR = async (socket: Socket) => {
+    const initAR = async (_socket: Socket) => {
       console.log("Initializing AR...");
       const video = videoRef.current!;
       const canvas = canvasRef.current!;
