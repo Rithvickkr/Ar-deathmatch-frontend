@@ -17,6 +17,7 @@ export default function Game() {
   const [gameStatus, setGameStatus] = useState<"waiting" | "ready" | "over">("waiting");
   const [socketId, setSocketId] = useState<string | null>(null);
   const [winner, setWinner] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastShot, setLastShot] = useState<number>(0);
@@ -33,12 +34,18 @@ export default function Game() {
 
   useEffect(() => {
     // Get available video devices
-    navigator.mediaDevices.enumerateDevices().then((devices: MediaDeviceInfo[]) => {
-      const videoInputs = devices.filter((device) => device.kind === "videoinput");
-      console.log("Available video devices:", videoInputs);
-      setVideoDevices(videoInputs);
-      setSelectedDeviceId(videoInputs[0]?.deviceId || null);
-    });
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices: MediaDeviceInfo[]) => {
+        const videoInputs = devices.filter((device) => device.kind === "videoinput");
+        console.log("Available video devices:", videoInputs);
+        setVideoDevices(videoInputs);
+        setSelectedDeviceId(videoInputs[0]?.deviceId || null);
+      })
+      .catch((err: Error) => {
+        console.error("Error enumerating devices:", err);
+        setCameraError("Unable to access camera devices. Please check permissions.");
+      });
 
     socketRef.current = io("https://ar-game-server.onrender.com", {
       reconnection: true,
@@ -91,27 +98,36 @@ export default function Game() {
     console.log("Starting camera and AR with device:", selectedDeviceId);
 
     navigator.mediaDevices
-      .getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } })
+      .getUserMedia({ video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } })
       .then((stream: MediaStream) => {
         console.log("Camera stream obtained");
-        const video = videoRef.current!;
-        video.srcObject = stream;
-        video.width = 640; // PoseNet processing size
-        video.height = 480;
-        video.onloadedmetadata = () => {
-          video
+        videoRef.current!.srcObject = stream;
+        videoRef.current!.onloadedmetadata = () => {
+          videoRef.current!
             .play()
             .then(() => {
               console.log("Video playing, dimensions:", {
-                width: video.videoWidth,
-                height: video.videoHeight,
+                width: videoRef.current!.videoWidth,
+                height: videoRef.current!.videoHeight,
               });
               initAR();
             })
-            .catch((err: Error) => console.error("Video play error:", err));
+            .catch((err: Error) => {
+              console.error("Video play error:", err);
+              setCameraError("Failed to play camera stream. Please allow camera access and try again.");
+            });
         };
       })
-      .catch((err: Error) => console.error("Camera error:", err));
+      .catch((err: Error) => {
+        console.error("Camera access error:", err);
+        if (err.name === "NotAllowedError") {
+          setCameraError("Camera access denied. Please enable camera permissions in your browser settings.");
+        } else if (err.name === "NotFoundError") {
+          setCameraError("No camera found. Please ensure a camera is connected and try again.");
+        } else {
+          setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
+        }
+      });
 
     const initAR = async () => {
       console.log("Initializing AR...");
@@ -161,18 +177,26 @@ export default function Game() {
       console.log("Crosshair added for", selectedGun);
 
       // TensorFlow.js backend
-      await tf.setBackend("webgl");
+      await tf.setBackend("webgl").catch((err: Error) => {
+        console.error("WebGL backend error:", err);
+        setCameraError("Failed to initialize WebGL for PoseNet. Please try a different browser or device.");
+      });
       await tf.ready();
       console.log("TensorFlow.js backend set to WebGL");
 
       // PoseNet setup
-      netRef.current = await posenet.load({
-        architecture: "MobileNetV1",
-        outputStride: 16,
-        inputResolution: { width: 640, height: 480 },
-        multiplier: 0.75,
-      });
-      console.log("PoseNet loaded with resolution: 640x480");
+      try {
+        netRef.current = await posenet.load({
+          architecture: "MobileNetV1",
+          outputStride: 16,
+          inputResolution: { width: 640, height: 480 },
+          multiplier: 0.75,
+        });
+        console.log("PoseNet loaded with resolution: 640x480");
+      } catch (err: unknown) {
+        console.error("PoseNet load error:", err);
+        setCameraError("Failed to load PoseNet model. Please refresh and try again.");
+      }
 
       const animate = () => {
         requestAnimationFrame(animate);
@@ -402,67 +426,81 @@ export default function Game() {
         </div>
       ) : gameStatus === "ready" ? (
         <div className="relative w-full h-screen">
-          <video ref={videoRef} className="absolute top-0 left-0 w-full h-full object-cover" />
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
-            <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
-          </div>
-          <div className="absolute top-2 left-2 right-2 flex justify-between text-white font-bold bg-black/50 p-2">
-            {players.map((player) => (
-              <div key={player.id}>
-                {player.id === socketId ? "You" : "Opponent"}: {player.health}
+          {cameraError ? (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-500 text-white p-4 rounded">
+              <p>{cameraError}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 bg-white text-red-500 px-4 py-2 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <video ref={videoRef} className="absolute top-0 left-0 w-full h-full object-cover" />
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
+                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
               </div>
-            ))}
-          </div>
-          <select
-            value={selectedDeviceId || ""}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDeviceId(e.target.value)}
-            className="absolute top-10 left-2 bg-gray-700 text-white p-2 rounded"
-          >
-            {videoDevices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
-              </option>
-            ))}
-          </select>
-          <div className="absolute top-10 right-2 flex space-x-2">
-            <button
-              onClick={() => handleGunChange("sniper")}
-              className={`py-2 px-4 rounded ${
-                selectedGun === "sniper" ? "bg-green-500" : "bg-gray-700"
-              } text-white`}
-            >
-              Sniper
-            </button>
-            <button
-              onClick={() => handleGunChange("pistol")}
-              className={`py-2 px-4 rounded ${
-                selectedGun === "pistol" ? "bg-red-500" : "bg-gray-700"
-              } text-white`}
-            >
-              Pistol
-            </button>
-            <button
-              onClick={() => handleGunChange("shotgun")}
-              className={`py-2 px-4 rounded ${
-                selectedGun === "shotgun" ? "bg-yellow-500" : "bg-gray-700"
-              } text-white`}
-            >
-              Shotgun
-            </button>
-          </div>
-          <button
-            onClick={handleShoot}
-            className={`absolute bottom-10 left-1/2 transform -translate-x-1/2 text-white font-bold py-3 px-6 rounded-full shadow-lg ${
-              isReloading ? "bg-gray-500 cursor-not-allowed" : "bg-red-500 hover:bg-red-600"
-            }`}
-            disabled={isReloading}
-          >
-            {isReloading ? "Reloading..." : "Shoot"}
-          </button>
-          <audio ref={sniperSoundRef} src="/sniper.mp3" preload="auto" />
-          <audio ref={pistolSoundRef} src="/pistol.mp3" preload="auto" />
-          <audio ref={shotgunSoundRef} src="/shotgun.mp3" preload="auto" />
-          <audio ref={hitSoundRef} src="/hit.mp3" preload="auto" />
+              <div className="absolute top-2 left-2 right-2 flex justify-between text-white font-bold bg-black/50 p-2">
+                {players.map((player) => (
+                  <div key={player.id}>
+                    {player.id === socketId ? "You" : "Opponent"}: {player.health}
+                  </div>
+                ))}
+              </div>
+              <select
+                value={selectedDeviceId || ""}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDeviceId(e.target.value)}
+                className="absolute top-10 left-2 bg-gray-700 text-white p-2 rounded"
+              >
+                {videoDevices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute top-10 right-2 flex space-x-2">
+                <button
+                  onClick={() => handleGunChange("sniper")}
+                  className={`py-2 px-4 rounded ${
+                    selectedGun === "sniper" ? "bg-green-500" : "bg-gray-700"
+                  } text-white`}
+                >
+                  Sniper
+                </button>
+                <button
+                  onClick={() => handleGunChange("pistol")}
+                  className={`py-2 px-4 rounded ${
+                    selectedGun === "pistol" ? "bg-red-500" : "bg-gray-700"
+                  } text-white`}
+                >
+                  Pistol
+                </button>
+                <button
+                  onClick={() => handleGunChange("shotgun")}
+                  className={`py-2 px-4 rounded ${
+                    selectedGun === "shotgun" ? "bg-yellow-500" : "bg-gray-700"
+                  } text-white`}
+                >
+                  Shotgun
+                </button>
+              </div>
+              <button
+                onClick={handleShoot}
+                className={`absolute bottom-10 left-1/2 transform -translate-x-1/2 text-white font-bold py-3 px-6 rounded-full shadow-lg ${
+                  isReloading ? "bg-gray-500 cursor-not-allowed" : "bg-red-500 hover:bg-red-600"
+                }`}
+                disabled={isReloading}
+              >
+                {isReloading ? "Reloading..." : "Shoot"}
+              </button>
+              <audio ref={sniperSoundRef} src="/sniper.mp3" preload="auto" />
+              <audio ref={pistolSoundRef} src="/pistol.mp3" preload="auto" />
+              <audio ref={shotgunSoundRef} src="/shotgun.mp3" preload="auto" />
+              <audio ref={hitSoundRef} src="/hit.mp3" preload="auto" />
+            </>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
