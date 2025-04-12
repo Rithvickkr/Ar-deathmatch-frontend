@@ -33,7 +33,40 @@ export default function Game() {
   const [selectedGun, setSelectedGun] = useState<"sniper" | "pistol" | "shotgun">("pistol");
 
   useEffect(() => {
-    // Initialize socket
+    // Request camera permission early to populate device details
+    const requestCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach((track) => track.stop());
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter((device) => device.kind === "videoinput");
+        console.log("Available video devices:", videoInputs);
+        if (videoInputs.length === 0) {
+          setCameraError("No cameras found. Please connect a camera and try again.");
+          return;
+        }
+        setVideoDevices(videoInputs);
+        setSelectedDeviceId(videoInputs[0].deviceId || null);
+      } catch (err: unknown) {
+        console.error("Initial camera permission error:", err);
+        if (err instanceof DOMException) {
+          if (err.name === "NotAllowedError") {
+            setCameraError(
+              "Camera access denied. Please enable camera permissions in your browser or device settings."
+            );
+          } else if (err.name === "NotFoundError") {
+            setCameraError("No camera found. Please ensure a camera is connected and try again.");
+          } else {
+            setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
+          }
+        } else {
+          setCameraError("Unexpected camera error. Please refresh and try again.");
+        }
+      }
+    };
+
+    requestCameraPermission();
+
     socketRef.current = io("https://ar-game-server.onrender.com", {
       reconnection: true,
       reconnectionAttempts: 5,
@@ -66,42 +99,6 @@ export default function Game() {
       console.error("Connection failed:", err.message);
     });
 
-    // Request camera permission early to populate device details
-    const requestCameraPermission = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        // Stop the stream immediately to avoid keeping the camera on
-        stream.getTracks().forEach((track) => track.stop());
-        // Now enumerate devices
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((device) => device.kind === "videoinput");
-        console.log("Available video devices:", videoInputs);
-        if (videoInputs.length === 0) {
-          setCameraError("No cameras found. Please connect a camera and try again.");
-          return;
-        }
-        setVideoDevices(videoInputs);
-        setSelectedDeviceId(videoInputs[0].deviceId || null);
-      } catch (err: unknown) {
-        console.error("Initial camera permission error:", err);
-        if (err instanceof DOMException) {
-          if (err.name === "NotAllowedError") {
-            setCameraError(
-              "Camera access denied. Please enable camera permissions in your browser or device settings."
-            );
-          } else if (err.name === "NotFoundError") {
-            setCameraError("No camera found. Please ensure a camera is connected and try again.");
-          } else {
-            setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
-          }
-        } else {
-          setCameraError("Unexpected camera error. Please refresh and try again.");
-        }
-      }
-    };
-
-    requestCameraPermission();
-
     return () => {
       socketRef.current?.disconnect();
     };
@@ -121,36 +118,35 @@ export default function Game() {
     console.log("Starting camera and AR with device:", selectedDeviceId);
 
     navigator.mediaDevices
-      .getUserMedia({ video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } })
+      .getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } })
       .then((stream: MediaStream) => {
         console.log("Camera stream obtained");
         videoRef.current!.srcObject = stream;
+        videoRef.current!.width = 640; // PoseNet processing size
+        videoRef.current!.height = 480;
         videoRef.current!.onloadedmetadata = () => {
-          // Delay play slightly to ensure stream is ready
-          setTimeout(() => {
-            videoRef.current!
-              .play()
-              .then(() => {
-                console.log("Video playing, dimensions:", {
-                  width: videoRef.current!.videoWidth,
-                  height: videoRef.current!.videoHeight,
-                });
-                initAR();
-              })
-              .catch((err: Error) => {
-                console.error("Video play error:", err);
-                setCameraError(
-                  `Failed to play camera stream: ${err.message}. Please ensure camera permissions are allowed in Safari settings and try again.`
-                );
+          videoRef.current!
+            .play()
+            .then(() => {
+              console.log("Video playing, dimensions:", {
+                width: videoRef.current!.videoWidth,
+                height: videoRef.current!.videoHeight,
               });
-          }, 100); // 100ms delay for iOS compatibility
+              initAR();
+            })
+            .catch((err: Error) => {
+              console.error("Video play error:", err);
+              setCameraError(
+                `Failed to play camera stream: ${err.message}. Please ensure camera permissions are allowed and try again.`
+              );
+            });
         };
       })
       .catch((err: Error) => {
         console.error("Camera access error:", err);
         if (err.name === "NotAllowedError") {
           setCameraError(
-            "Camera access denied. Please enable camera permissions in Safari or device settings (Settings > Safari > Camera)."
+            "Camera access denied. Please enable camera permissions in your browser or device settings."
           );
         } else if (err.name === "NotFoundError") {
           setCameraError("No camera found. Please ensure a camera is available and try again.");
@@ -207,26 +203,18 @@ export default function Game() {
       console.log("Crosshair added for", selectedGun);
 
       // TensorFlow.js backend
-      await tf.setBackend("webgl").catch((err: Error) => {
-        console.error("WebGL backend error:", err);
-        setCameraError("Failed to initialize WebGL for PoseNet. Please try a different browser or device.");
-      });
+      await tf.setBackend("webgl");
       await tf.ready();
       console.log("TensorFlow.js backend set to WebGL");
 
       // PoseNet setup
-      try {
-        netRef.current = await posenet.load({
-          architecture: "MobileNetV1",
-          outputStride: 16,
-          inputResolution: { width: 640, height: 480 },
-          multiplier: 0.75,
-        });
-        console.log("PoseNet loaded with resolution: 640x480");
-      } catch (err: unknown) {
-        console.error("PoseNet load error:", err);
-        setCameraError("Failed to load PoseNet model. Please refresh and try again.");
-      }
+      netRef.current = await posenet.load({
+        architecture: "MobileNetV1",
+        outputStride: 16,
+        inputResolution: { width: 640, height: 480 },
+        multiplier: 0.75,
+      });
+      console.log("PoseNet loaded with resolution: 640x480");
 
       const animate = () => {
         requestAnimationFrame(animate);
@@ -471,8 +459,6 @@ export default function Game() {
               <video
                 ref={videoRef}
                 className="absolute top-0 left-0 w-full h-full object-cover"
-                playsInline
-                muted
               />
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
