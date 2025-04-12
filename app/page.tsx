@@ -45,15 +45,13 @@ export default function Game() {
       reconnectionAttempts: 5,
     });
 
-    const socket = socketRef.current;
-
-    socket.on("connect", () => {
-      console.log("Connected as:", socket.id);
-      setSocketId(socket.id || null);
-      socket.emit("joinGame");
+    socketRef.current.on("connect", () => {
+      console.log("Connected as:", socketRef.current!.id);
+      setSocketId(socketRef.current!.id || null);
+      socketRef.current!.emit("joinGame");
     });
 
-    socket.on("playerUpdate", (updatedPlayers: Player[]) => {
+    socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
       setPlayers(updatedPlayers);
       if (updatedPlayers.length === 2 && gameStatus === "waiting") {
@@ -61,7 +59,7 @@ export default function Game() {
       }
     });
 
-    socket.on("gameOver", ({ winner }: { winner: string }) => {
+    socketRef.current.on("gameOver", ({ winner }: { winner: string }) => {
       console.log("Game over, winner:", winner);
       setGameStatus("over");
       setWinner(winner);
@@ -70,12 +68,12 @@ export default function Game() {
       }
     });
 
-    socket.on("connect_error", (err: { message: string }) => {
+    socketRef.current.on("connect_error", (err: { message: string }) => {
       console.error("Connection failed:", err.message);
     });
 
     return () => {
-      socket.disconnect();
+      socketRef.current?.disconnect();
     };
   }, [gameStatus]);
 
@@ -108,14 +106,14 @@ export default function Game() {
                 width: video.videoWidth,
                 height: video.videoHeight,
               });
-              initAR(socketRef.current!);
+              initAR();
             })
             .catch((err: Error) => console.error("Video play error:", err));
         };
       })
       .catch((err: Error) => console.error("Camera error:", err));
 
-    const initAR = async (_socket: Socket) => {
+    const initAR = async () => {
       console.log("Initializing AR...");
       const canvas = canvasRef.current!;
 
