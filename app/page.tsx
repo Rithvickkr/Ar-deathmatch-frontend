@@ -18,6 +18,7 @@ export default function Game() {
   const [socketId, setSocketId] = useState<string | null>(null);
   const [winner, setWinner] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastShot, setLastShot] = useState<number>(0);
@@ -81,8 +82,9 @@ export default function Game() {
     socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
       setPlayers(updatedPlayers);
-      if (updatedPlayers.length === 2 && gameStatus === "waiting") {
-        setGameStatus("ready");
+      // Check if both players are ready for countdown
+      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
+        startCountdown();
       }
     });
 
@@ -103,6 +105,24 @@ export default function Game() {
       socketRef.current?.disconnect();
     };
   }, [gameStatus]);
+
+  // Start 5-second countdown when both players are ready
+  const startCountdown = () => {
+    let timeLeft = 5;
+    setCountdown(timeLeft);
+    const timer = setInterval(() => {
+      timeLeft -= 1;
+      setCountdown(timeLeft);
+      if (timeLeft <= 0) {
+        clearInterval(timer);
+        setCountdown(null);
+        setGameStatus("ready");
+      }
+    }, 1000);
+  };
+
+  // Toggle ready status
+  // toggleReady function already declared below
 
   useEffect(() => {
     if (gameStatus === "waiting" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
@@ -143,14 +163,18 @@ export default function Game() {
         };
       } catch (err: unknown) {
         console.error("Camera access error:", err);
-        if (err instanceof Error && err.name === "NotAllowedError") {
-          setCameraError(
-            "Camera access denied. Please enable camera permissions in Safari or device settings (Settings > Safari > Camera)."
-          );
-        } else if (err instanceof Error && err.name === "NotFoundError") {
-          setCameraError("No camera found. Please ensure a camera is available and try again.");
-        } else if (err instanceof Error) {
-          setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
+        if (err instanceof DOMException) {
+          if (err.name === "NotAllowedError") {
+            setCameraError(
+              "Camera access denied. Please enable camera permissions in Safari or device settings (Settings > Safari > Camera)."
+            );
+          } else if (err.name === "NotFoundError") {
+            setCameraError("No camera found. Please ensure a camera is available and try again.");
+          } else {
+            setCameraError(`Camera error: ${err.message}. Please check your device and refresh.`);
+          }
+        } else {
+          setCameraError(`Camera error: ${err instanceof Error ? err.message : 'Unknown error'}. Please check your device and refresh.`);
         }
       }
     };
@@ -281,7 +305,7 @@ export default function Game() {
       const lowerBodyParts = ["leftHip", "rightHip"];
       const centerX = 320; // Center of 640x480 hit detection area
       const centerY = 240;
-      const radius = selectedGun === "sniper" ? 100 : selectedGun === "pistol" ? 200 : 400;
+      const radius = selectedGun === "sniper" ? 75 : selectedGun === "pistol" ? 125 : 175;
       const scaleX = 1; // No scaling, use raw PoseNet coords
       const scaleY = 1;
       const threshold = 0.5;
@@ -349,7 +373,7 @@ export default function Game() {
           if (headParts.includes(keypoint.part) && adjustedY < headZoneMax && headScore > threshold) {
             if (headScore > bestScore) {
               bestScore = headScore;
-              damage = 20;
+              damage = selectedGun === "sniper" ? 40 : 20;
               hitType = "Headshot";
               console.log(`Potential ${hitType} with score: ${headScore}`);
             }
@@ -387,16 +411,7 @@ export default function Game() {
         socketRef.current.emit("shoot", { shooterId: socketId, damage });
         console.log("Shoot event emitted");
         // Play gun sound again on confirmed hit
-        if (selectedGun === "sniper" && sniperSoundRef.current) {
-          sniperSoundRef.current.currentTime = 0; // Reset to start
-          sniperSoundRef.current.play().catch((err: Error) => console.error("Sniper hit sound error:", err));
-        } else if (selectedGun === "pistol" && pistolSoundRef.current) {
-          pistolSoundRef.current.currentTime = 0; // Reset to start
-          pistolSoundRef.current.play().catch((err: Error) => console.error("Pistol hit sound error:", err));
-        } else if (selectedGun === "shotgun" && shotgunSoundRef.current) {
-          shotgunSoundRef.current.currentTime = 0; // Reset to start
-          shotgunSoundRef.current.play().catch((err: Error) => console.error("Shotgun hit sound error:", err));
-        }
+       
       } else {
         console.log("No head, torso, or lower body detected within crosshair radius with sufficient collective score");
       }
@@ -412,7 +427,18 @@ export default function Game() {
     console.log("Resetting game...");
     setGameStatus("waiting");
     setWinner(null);
+    setCountdown(null);
     socketRef.current?.emit("resetGame");
+  };
+
+  const toggleReady = () => {
+    if (socketRef.current && socketId) {
+      const player = players.find((p) => p.id === socketId);
+      if (player) {
+        socketRef.current.emit("setReady", { playerId: socketId, ready: !player.ready });
+        console.log("Toggled ready status:", !player.ready);
+      }
+    }
   };
 
   const handleGunChange = (gun: "sniper" | "pistol" | "shotgun") => {
@@ -421,37 +447,104 @@ export default function Game() {
   };
 
   return (
-    <div className="text-center bg-gray-900 text-white min-h-screen p-5 font-sans">
+    <div className="text-center bg-gray-900 text-white min-h-screen p-5 font-sans flex items-center justify-center">
       {gameStatus === "waiting" ? (
-        <div className="max-w-md mx-auto bg-gray-800 p-6 rounded-lg shadow-lg">
-          <h1 className="text-4xl mb-5">AR Deathmatch</h1>
-          <h2 className="text-2xl mb-4">Lobby</h2>
-          <div className="mb-5">
+        <div className="w-full max-w-lg bg-gray-800 p-8 rounded-xl shadow-2xl animate-fade-in">
+          <h1 className="text-5xl font-bold mb-6 text-red-500 drop-shadow-lg">AR Deathmatch</h1>
+          <h2 className="text-2xl mb-4 text-gray-300">Lobby</h2>
+          <div className="mb-6">
             {players.map((player) => (
               <div
                 key={player.id}
-                className={`p-3 ${player.ready ? "bg-green-500" : "bg-red-500"} my-2 rounded flex justify-between`}
+                className={`flex justify-between items-center p-4 mb-2 rounded-lg shadow-md transition-transform transform hover:scale-105 ${
+                  player.ready ? "bg-green-600" : "bg-red-600"
+                }`}
               >
-                <span>Player {player.id.slice(0, 4)}</span>
-                <span>Health: {player.health}</span>
+                <span className="text-lg font-semibold">
+                  Player {player.id.slice(0, 4)}
+                </span>
+                <div className="flex items-center space-x-4">
+                  <span className="text-lg">Health: {player.health}</span>
+                  {player.id === socketId && (
+                    <button
+                      onClick={toggleReady}
+                      className={`py-2 px-4 rounded-lg font-semibold transition-all transform hover:scale-110 shadow-md ${
+                        player.ready
+                          ? "bg-green-500 text-white"
+                          : "bg-gray-500 text-gray-200 hover:bg-gray-400"
+                      }`}
+                    >
+                      {player.ready ? "Ready" : "Not Ready"}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
-            {players.length < 2 && <p className="text-gray-400">Waiting for opponent...</p>}
+            {players.length < 2 && (
+              <p className="text-gray-400 mt-2">Waiting for opponent...</p>
+            )}
           </div>
-          <div
-            className={`p-3 ${players.length === 2 ? "bg-green-500" : "bg-orange-500"} rounded font-bold`}
-          >
-            {players.length < 2 ? "Waiting for 2 Players" : "Game Ready!"}
+          {socketId && players.some((p) => p.id === socketId) && (
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold mb-3 text-gray-200">Select Your Gun</h3>
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={() => handleGunChange("sniper")}
+                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
+                    selectedGun === "sniper"
+                      ? "bg-green-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-green-400"
+                  }`}
+                >
+                  Sniper
+                </button>
+                <button
+                  onClick={() => handleGunChange("pistol")}
+                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
+                    selectedGun === "pistol"
+                      ? "bg-red-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-red-400"
+                  }`}
+                >
+                  Pistol
+                </button>
+                <button
+                  onClick={() => handleGunChange("shotgun")}
+                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
+                    selectedGun === "shotgun"
+                      ? "bg-yellow-500 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-yellow-400"
+                  }`}
+                >
+                  Shotgun
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="p-4 rounded-lg font-bold text-lg transition-colors">
+            {countdown !== null ? (
+              <span className="text-3xl text-yellow-400 animate-pulse">
+                Starting in {countdown}...
+              </span>
+            ) : players.length < 2 ? (
+              <span className="bg-orange-500 p-4 rounded-lg">
+                Waiting for 2 Players
+              </span>
+            ) : (
+              <span className="bg-gray-500 p-4 rounded-lg">
+                Waiting for both players to be ready...
+              </span>
+            )}
           </div>
         </div>
       ) : gameStatus === "ready" ? (
         <div className="relative w-full h-screen">
           {cameraError ? (
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-500 text-white p-4 rounded">
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-500 text-white p-4 rounded-xl shadow-lg">
               <p>{cameraError}</p>
               <button
                 onClick={() => window.location.reload()}
-                className="mt-2 bg-white text-red-500 px-4 py-2 rounded"
+                className="mt-2 bg-white text-red-500 px-4 py-2 rounded-lg hover:bg-gray-100 transition"
               >
                 Retry
               </button>
@@ -467,17 +560,33 @@ export default function Game() {
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
                 <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
               </div>
-              <div className="absolute top-2 left-2 right-2 flex justify-between text-white font-bold bg-black/50 p-2">
+              {/* Health Bars */}
+              <div className="absolute top-4 left-4 right-4 flex justify-between">
                 {players.map((player) => (
-                  <div key={player.id}>
-                    {player.id === socketId ? "You" : "Opponent"}: {player.health}
+                  <div
+                    key={player.id}
+                    className="flex flex-col items-center w-1/3 bg-black/60 p-3 rounded-lg shadow-md"
+                  >
+                    <span className="text-lg font-bold text-white mb-1">
+                      {player.id === socketId ? "You" : "Opponent"} ({player.id.slice(0, 4)})
+                    </span>
+                    <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          player.health > 50 ? "bg-green-500" : player.health > 20 ? "bg-yellow-500" : "bg-red-500"
+                        }`}
+                        style={{ width: `${player.health}%` }}
+                      ></div>
+                    </div>
+                    <span className="text-sm text-gray-300 mt-1">{player.health}/100</span>
                   </div>
                 ))}
               </div>
+              {/* Camera Select */}
               <select
                 value={selectedDeviceId || ""}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDeviceId(e.target.value)}
-                className="absolute top-10 left-2 bg-gray-700 text-white p-2 rounded"
+                className="absolute bottom-4 left-4 bg-gray-800 text-white p-2 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 {videoDevices.map((device) => (
                   <option key={device.deviceId} value={device.deviceId}>
@@ -485,36 +594,35 @@ export default function Game() {
                   </option>
                 ))}
               </select>
-              <div className="absolute top-10 right-2 flex space-x-2">
-                <button
-                  onClick={() => handleGunChange("sniper")}
-                  className={`py-2 px-4 rounded ${
-                    selectedGun === "sniper" ? "bg-green-500" : "bg-gray-700"
-                  } text-white`}
+              {/* Gun Display */}
+              <div
+                className={`absolute bottom-4 right-4 flex items-center bg-black/60 p-3 rounded-lg shadow-md ${
+                  selectedGun === "sniper"
+                    ? "border-2 border-green-500"
+                    : selectedGun === "pistol"
+                    ? "border-2 border-red-500"
+                    : "border-2 border-yellow-500"
+                }`}
+              >
+                <span
+                  className={`text-lg font-bold ${
+                    selectedGun === "sniper"
+                      ? "text-green-400"
+                      : selectedGun === "pistol"
+                      ? "text-red-400"
+                      : "text-yellow-400"
+                  }`}
                 >
-                  Sniper
-                </button>
-                <button
-                  onClick={() => handleGunChange("pistol")}
-                  className={`py-2 px-4 rounded ${
-                    selectedGun === "pistol" ? "bg-red-500" : "bg-gray-700"
-                  } text-white`}
-                >
-                  Pistol
-                </button>
-                <button
-                  onClick={() => handleGunChange("shotgun")}
-                  className={`py-2 px-4 rounded ${
-                    selectedGun === "shotgun" ? "bg-yellow-500" : "bg-gray-700"
-                  } text-white`}
-                >
-                  Shotgun
-                </button>
+                  {selectedGun.charAt(0).toUpperCase() + selectedGun.slice(1)}
+                </span>
               </div>
+              {/* Shoot Button */}
               <button
                 onClick={handleShoot}
-                className={`absolute bottom-10 left-1/2 transform -translate-x-1/2 text-white font-bold py-3 px-6 rounded-full shadow-lg ${
-                  isReloading ? "bg-gray-500 cursor-not-allowed" : "bg-red-500 hover:bg-red-600"
+                className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 text-white font-bold py-4 px-8 rounded-full shadow-xl transition-all ${
+                  isReloading
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-red-600 hover:bg-red-700 animate-pulse"
                 }`}
                 disabled={isReloading}
               >
