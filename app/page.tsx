@@ -1,5 +1,5 @@
 "use client";
-
+import React from "react";
 import { useEffect, useState, useRef } from "react";
 import io, { Socket } from "socket.io-client";
 import * as THREE from "three";
@@ -190,7 +190,10 @@ export default function Game() {
       const camera = new THREE.PerspectiveCamera(75, 640 / 480, 0.1, 1000);
       camera.position.z = 1;
       const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
-      renderer.setSize(640, 480); // Hit detection area size
+      // Set renderer size based on screen resolution
+      
+        renderer.setSize(640, 480); // Hit detection area size
+     
       console.log("Renderer initialized with size: 640x480");
 
       // Improved Crosshair based on selected gun
@@ -209,7 +212,7 @@ export default function Game() {
         crosshairMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
       }
       const crosshair = new THREE.Mesh(crosshairGeo, crosshairMat);
-      crosshair.position.set(0, 0, -0.5);
+      crosshair.position.set(0, 0, -0.5); // Centered at origin (0,0) which is the center of the renderer
       crosshairGroup.add(crosshair);
 
       // Add crosshair lines
@@ -234,13 +237,19 @@ export default function Game() {
       console.log("TensorFlow.js backend set to WebGL");
 
       // PoseNet setup
+      const screenWidth = window.innerWidth;
+      const screenHeight = window.innerHeight;
+      const useLowRes = screenWidth < 640 || screenHeight < 480;
+      const inputWidth = useLowRes ? 320 : 640;
+      const inputHeight = useLowRes ? 240 : 480;
+
       netRef.current = await posenet.load({
         architecture: "MobileNetV1",
         outputStride: 16,
-        inputResolution: { width: 640, height: 480 },
+        inputResolution: { width: 640, height: 420 },
         multiplier: 0.75,
       });
-      console.log("PoseNet loaded with resolution: 640x480");
+      console.log(`PoseNet loaded with resolution: 640x480, Low Res: ${useLowRes}`);
 
       const animate = () => {
         requestAnimationFrame(animate);
@@ -447,187 +456,532 @@ export default function Game() {
   };
 
   return (
-    <div className="text-center bg-gray-900 text-white min-h-screen p-5 font-sans flex items-center justify-center">
+    <div className="min-h-screen bg-black text-white font-mono overflow-hidden relative">
+      <style jsx>{`
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideUp {
+          from { transform: translateY(100px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes slideDown {
+          from { transform: translateY(-100px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes slideLeft {
+          from { transform: translateX(-100px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideRight {
+          from { transform: translateX(100px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(0.98); }
+        }
+        @keyframes glow {
+          0%, 100% { text-shadow: 0 0 20px currentColor; }
+          50% { text-shadow: 0 0 30px currentColor, 0 0 40px currentColor; }
+        }
+        @keyframes countdownPulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.2); opacity: 0.8; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes digitalGlitch {
+          0% { transform: translate(0); }
+          10% { transform: translate(-2px, 2px); }
+          20% { transform: translate(-2px, -2px); }
+          30% { transform: translate(2px, 2px); }
+          40% { transform: translate(2px, -2px); }
+          50% { transform: translate(-2px, 2px); }
+          60% { transform: translate(-2px, -2px); }
+          70% { transform: translate(2px, 2px); }
+          80% { transform: translate(-2px, -2px); }
+          90% { transform: translate(2px, 2px); }
+          100% { transform: translate(0); }
+        }
+        @keyframes breathing {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
+        
+        .animate-fadeIn { animation: fadeIn 0.8s ease-out forwards; }
+        .animate-slideUp { animation: slideUp 0.6s ease-out forwards; }
+        .animate-slideDown { animation: slideDown 0.6s ease-out forwards; }
+        .animate-slideLeft { animation: slideLeft 0.6s ease-out forwards; }
+        .animate-slideRight { animation: slideRight 0.6s ease-out forwards; }
+        .animate-pulse { animation: pulse 2s infinite; }
+        .animate-glow { animation: glow 2s infinite; }
+        .animate-countdownPulse { animation: countdownPulse 1s infinite; }
+        .animate-glitch { animation: digitalGlitch 0.3s ease-in-out; }
+        .animate-breathing { animation: breathing 3s ease-in-out infinite; }
+        
+        .font-orbitron { font-family: 'Orbitron', monospace; }
+        
+        .tactical-overlay {
+          background: linear-gradient(135deg, rgba(0, 50, 0, 0.1) 0%, rgba(0, 100, 0, 0.05) 100%);
+          border: 1px solid rgba(0, 255, 0, 0.2);
+          backdrop-filter: blur(10px);
+          box-shadow: 
+            inset 0 0 20px rgba(0, 255, 0, 0.1),
+            0 0 20px rgba(0, 255, 0, 0.2);
+        }
+        
+        .tactical-overlay-red {
+          background: linear-gradient(135deg, rgba(50, 0, 0, 0.1) 0%, rgba(100, 0, 0, 0.05) 100%);
+          border: 1px solid rgba(255, 0, 0, 0.2);
+          backdrop-filter: blur(10px);
+          box-shadow: 
+            inset 0 0 20px rgba(255, 0, 0, 0.1),
+            0 0 20px rgba(255, 0, 0, 0.2);
+        }
+        
+        .tactical-overlay-blue {
+          background: linear-gradient(135deg, rgba(0, 0, 50, 0.1) 0%, rgba(0, 0, 100, 0.05) 100%);
+          border: 1px solid rgba(0, 100, 255, 0.2);
+          backdrop-filter: blur(10px);
+          box-shadow: 
+            inset 0 0 20px rgba(0, 100, 255, 0.1),
+            0 0 20px rgba(0, 100, 255, 0.2);
+        }
+        
+        .tactical-overlay-yellow {
+          background: linear-gradient(135deg, rgba(50, 50, 0, 0.1) 0%, rgba(100, 100, 0, 0.05) 100%);
+          border: 1px solid rgba(255, 255, 0, 0.2);
+          backdrop-filter: blur(10px);
+          box-shadow: 
+            inset 0 0 20px rgba(255, 255, 0, 0.1),
+            0 0 20px rgba(255, 255, 0, 0.2);
+        }
+        
+        .neon-text {
+          text-shadow: 
+            0 0 5px currentColor,
+            0 0 10px currentColor,
+            0 0 20px currentColor;
+        }
+        
+        .hud-corner::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 20px;
+          height: 20px;
+          border-top: 2px solid currentColor;
+          border-left: 2px solid currentColor;
+        }
+        
+        .hud-corner::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          right: 0;
+          width: 20px;
+          height: 20px;
+          border-bottom: 2px solid currentColor;
+          border-right: 2px solid currentColor;
+        }
+        
+        .digital-border {
+          position: relative;
+          border: 2px solid transparent;
+          background: linear-gradient(45deg, transparent, rgba(0, 255, 0, 0.1), transparent) padding-box,
+                      linear-gradient(45deg, #00ff00, #ffffff, #00ff00) border-box;
+        }
+        
+        .digital-border::before {
+          content: '';
+          position: absolute;
+          top: -2px;
+          left: -2px;
+          right: -2px;
+          bottom: -2px;
+          background: linear-gradient(45deg, #00ff00, #ffffff, #00ff00);
+          border-radius: inherit;
+          z-index: -1;
+          opacity: 0.3;
+        }
+        
+        .ammo-counter {
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.1em;
+        }
+        
+        .health-bar {
+          position: relative;
+          overflow: hidden;
+        }
+
+        /* Mobile HUD Optimizations */
+        @media (max-width: 768px) {
+          .hud-corner::before,
+          .hud-corner::after {
+            width: 10px;
+            height: 10px;
+          }
+        }
+          letter-spacing: 0.1em;
+        }
+        
+        .health-bar {
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .health-bar::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.1) 50%, transparent 100%);
+          animation: scanline 3s linear infinite;
+        }
+
+        /* Mobile HUD Optimizations */
+        @media (max-width: 768px) {
+          .hud-corner::before,
+          .hud-corner::after {
+            width: 10px;
+            height: 10px;
+          }
+        }
+      `}</style>
+
+      {/* Scanline Effect */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-green-400 to-transparent opacity-30 animate-scanline"></div>
+      </div>
+
       {gameStatus === "waiting" ? (
-        <div className="w-full max-w-lg bg-gray-800 p-8 rounded-xl shadow-2xl animate-fade-in">
-          <h1 className="text-5xl font-bold mb-6 text-red-500 drop-shadow-lg">AR Deathmatch</h1>
-          <h2 className="text-2xl mb-4 text-gray-300">Lobby</h2>
-          <div className="mb-6">
-            {players.map((player) => (
-              <div
-                key={player.id}
-                className={`flex justify-between items-center p-4 mb-2 rounded-lg shadow-md transition-transform transform hover:scale-105 ${
-                  player.ready ? "bg-green-600" : "bg-red-600"
-                }`}
-              >
-                <span className="text-lg font-semibold">
-                  Player {player.id.slice(0, 4)}
-                </span>
-                <div className="flex items-center space-x-4">
-                  <span className="text-lg">Health: {player.health}</span>
-                  {player.id === socketId && (
-                    <button
-                      onClick={toggleReady}
-                      className={`py-2 px-4 rounded-lg font-semibold transition-all transform hover:scale-110 shadow-md ${
-                        player.ready
-                          ? "bg-green-500 text-white"
-                          : "bg-gray-500 text-gray-200 hover:bg-gray-400"
-                      }`}
-                    >
-                      {player.ready ? "Ready" : "Not Ready"}
-                    </button>
-                  )}
-                </div>
+        <div className="flex items-center justify-center min-h-screen p-2 sm:p-4 lg:p-8">
+          <div className="w-full max-w-4xl animate-fadeIn">
+            {/* Main Title */}
+            <div className="text-center mb-8 sm:mb-12">
+              <h1 className="font-orbitron text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-green-400 mb-2 sm:mb-4 neon-text animate-glow">
+                AR WARFARE
+              </h1>
+              <div className="text-base sm:text-xl md:text-2xl font-orbitron text-gray-400 tracking-widest mb-2">
+                TACTICAL ENGAGEMENT SYSTEM
               </div>
-            ))}
-            {players.length < 2 && (
-              <p className="text-gray-400 mt-2">Waiting for opponent...</p>
-            )}
-          </div>
-          {socketId && players.some((p) => p.id === socketId) && (
-            <div className="mb-6">
-              <h3 className="text-xl font-semibold mb-3 text-gray-200">Select Your Gun</h3>
-              <div className="flex justify-center space-x-4">
-                <button
-                  onClick={() => handleGunChange("sniper")}
-                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
-                    selectedGun === "sniper"
-                      ? "bg-green-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-green-400"
-                  }`}
-                >
-                  Sniper
-                </button>
-                <button
-                  onClick={() => handleGunChange("pistol")}
-                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
-                    selectedGun === "pistol"
-                      ? "bg-red-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-red-400"
-                  }`}
-                >
-                  Pistol
-                </button>
-                <button
-                  onClick={() => handleGunChange("shotgun")}
-                  className={`py-3 px-6 rounded-lg font-bold text-lg transition-all transform hover:scale-110 shadow-md ${
-                    selectedGun === "shotgun"
-                      ? "bg-yellow-500 text-white"
-                      : "bg-gray-700 text-gray-300 hover:bg-yellow-400"
-                  }`}
-                >
-                  Shotgun
-                </button>
+              <div className="w-full h-px bg-gradient-to-r from-transparent via-green-400 to-transparent opacity-50"></div>
+              <div className="text-xs sm:text-sm text-green-400 mt-2 font-orbitron">
+                [ CLASSIFIED OPERATION ]
               </div>
             </div>
-          )}
-          <div className="p-4 rounded-lg font-bold text-lg transition-colors">
-            {countdown !== null ? (
-              <span className="text-3xl text-yellow-400 animate-pulse">
-                Starting in {countdown}...
-              </span>
-            ) : players.length < 2 ? (
-              <span className="bg-orange-500 p-4 rounded-lg">
-                Waiting for 2 Players
-              </span>
-            ) : (
-              <span className="bg-gray-500 p-4 rounded-lg">
-                Waiting for both players to be ready...
-              </span>
-            )}
+
+            {/* Mission Briefing Panel */}
+            <div className="tactical-overlay rounded-lg p-4 sm:p-6 lg:p-8 mb-6 sm:mb-8 animate-slideUp hud-corner relative">
+              <div className="scanline"></div>
+              <h2 className="font-orbitron text-lg sm:text-xl lg:text-2xl font-bold text-green-400 mb-4 sm:mb-6 flex items-center">
+                <span className="w-2 h-2 sm:w-3 sm:h-3 bg-green-400 rounded-full mr-2 sm:mr-3 animate-pulse"></span>
+                MISSION BRIEFING
+              </h2>
+              
+              {/* Operator Status */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+                {players.map((player, index) => (
+                  <div
+                    key={player.id}
+                    className={`${player.ready ? 'tactical-overlay' : 'tactical-overlay-red'} rounded-lg p-4 sm:p-6 animate-slideLeft relative hud-corner`}
+                    style={{ animationDelay: `${index * 0.2}s` }}
+                  >
+                    <div className="flex justify-between items-start mb-3 sm:mb-4">
+                      <div>
+                        <div className="font-orbitron text-sm sm:text-base lg:text-lg font-bold text-green-400">
+                          {player.id === socketId ? "OPERATOR-01" : "OPERATOR-02"}
+                        </div>
+                        <div className="text-xs text-gray-400 font-orbitron">
+                          ID: {player.id.slice(0, 8).toUpperCase()}
+                        </div>
+                      </div>
+                      <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full ${player.ready ? 'bg-green-400 animate-pulse' : 'bg-red-500'} border-2 border-current`}></div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs sm:text-sm">
+                        <span className="text-gray-400">STATUS:</span>
+                        <span className={`font-orbitron font-bold ${player.ready ? 'text-green-400' : 'text-red-400'}`}>
+                          {player.ready ? 'READY' : 'STANDBY'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs sm:text-sm">
+                        <span className="text-gray-400">HEALTH:</span>
+                        <span className="text-green-400 font-orbitron font-bold">{player.health}%</span>
+                      </div>
+                    </div>
+                    
+                    {player.id === socketId && (
+                      <button
+                        onClick={toggleReady}
+                        className={`w-full mt-3 sm:mt-4 py-2 sm:py-3 px-3 sm:px-4 rounded-lg font-orbitron font-bold text-xs sm:text-sm transition-all duration-300 transform hover:scale-105 ${
+                          player.ready
+                            ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30"
+                            : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/30"
+                        }`}
+                      >
+                        {player.ready ? "█ READY FOR COMBAT" : "◌ ENTER READY STATE"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {players.length < 2 && (
+                  <div className="tactical-overlay-yellow rounded-lg p-4 sm:p-6 opacity-60 animate-pulse hud-corner relative">
+                    <div className="font-orbitron text-sm sm:text-base lg:text-lg font-bold text-yellow-400 mb-2">
+                      OPERATOR-02
+                    </div>
+                    <div className="text-xs text-gray-400 mb-3 sm:mb-4">
+                      AWAITING CONNECTION...
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-yellow-400 rounded-full animate-pulse"></div>
+                      <span className="text-yellow-400 font-orbitron text-xs sm:text-sm">CONNECTING</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Weapon Selection */}
+              {socketId && players.some((p) => p.id === socketId) && (
+                <div className="mb-6 sm:mb-8">
+                  <h3 className="font-orbitron text-base sm:text-lg lg:text-xl font-bold text-green-400 mb-3 sm:mb-4 flex items-center">
+                    <span className="w-2 h-2 sm:w-3 sm:h-3 bg-green-400 rounded-full mr-2 sm:mr-3"></span>
+                    WEAPON SELECTION
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                    {[
+                      { type: "sniper", name: "SNIPER RIFLE", damage: "HIGH", range: "LONG", color: "green", symbol: "◊" },
+                      { type: "pistol", name: "TACTICAL PISTOL", damage: "MEDIUM", range: "CLOSE", color: "red", symbol: "●" },
+                      { type: "shotgun", name: "COMBAT SHOTGUN", damage: "EXTREME", range: "CLOSE", color: "yellow", symbol: "◈" }
+                    ].map(({ type, name, damage, range, color, symbol }) => (
+                      <button
+                        key={type}
+                        onClick={() => handleGunChange(type as "sniper" | "pistol" | "shotgun")}
+                        className={`tactical-overlay${selectedGun === type ? '' : '-' + color} rounded-lg p-3 sm:p-4 font-orbitron transition-all duration-300 transform hover:scale-105 ${
+                          selectedGun === type ? 'ring-2 ring-green-400' : ''
+                        } hud-corner relative`}
+                      >
+                        <div className={`text-xl sm:text-2xl mb-1 sm:mb-2 text-${color}-400`}>{symbol}</div>
+                        <div className={`text-xs sm:text-sm font-bold text-${color}-400 mb-1`}>{name}</div>
+                        <div className="text-xs text-gray-400 space-y-1">
+                          <div>DMG: {damage}</div>
+                          <div>RNG: {range}</div>
+                        </div>
+                        {selectedGun === type && (
+                          <div className="absolute top-1 right-1 text-green-400 text-xs">✓</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status Display */}
+            <div className="text-center">
+              {countdown !== null ? (
+                <div className="tactical-overlay-red rounded-lg p-6 sm:p-8 animate-countdownPulse">
+                  <div className="font-orbitron text-4xl sm:text-5xl lg:text-6xl font-black text-red-400 neon-text mb-2 sm:mb-4">
+                    {countdown}
+                  </div>
+                  <div className="text-red-400 font-orbitron text-sm sm:text-base lg:text-xl tracking-widest">
+                    MISSION COMMENCING
+                  </div>
+                </div>
+              ) : players.length < 2 ? (
+                <div className="tactical-overlay-yellow rounded-lg p-4 sm:p-6 animate-pulse">
+                  <div className="text-yellow-400 font-orbitron text-sm sm:text-base lg:text-lg font-bold mb-2">
+                    SEARCHING FOR OPERATORS...
+                  </div>
+                  <div className="text-gray-400 text-xs sm:text-sm">
+                    [{players.length}/2] OPERATORS CONNECTED
+                  </div>
+                </div>
+              ) : (
+                <div className="tactical-overlay rounded-lg p-4 sm:p-6">
+                  <div className="text-green-400 font-orbitron text-sm sm:text-base lg:text-lg font-bold">
+                    AWAITING READY STATUS...
+                  </div>
+                  <div className="text-gray-400 text-xs sm:text-sm mt-2">
+                    ALL OPERATORS MUST CONFIRM READY STATE
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : gameStatus === "ready" ? (
         <div className="relative w-full h-screen">
           {cameraError ? (
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-500 text-white p-4 rounded-xl shadow-lg">
-              <p>{cameraError}</p>
-              <button
-                onClick={() => window.location.reload()}
-                className="mt-2 bg-white text-red-500 px-4 py-2 rounded-lg hover:bg-gray-100 transition"
-              >
-                Retry
-              </button>
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div className="tactical-overlay-red rounded-lg p-6 sm:p-8 max-w-md text-center animate-fadeIn hud-corner relative">
+                <div className="text-red-400 text-4xl sm:text-6xl mb-4 sm:mb-6 animate-pulse">⚠</div>
+                <h2 className="font-orbitron text-lg sm:text-xl font-bold text-red-400 mb-3 sm:mb-4">
+                  SYSTEM ERROR
+                </h2>
+                <p className="text-xs sm:text-sm mb-4 sm:mb-6 text-gray-300">{cameraError}</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30"
+                >
+                  RETRY SYSTEM
+                </button>
+              </div>
             </div>
           ) : (
             <>
               <video
                 ref={videoRef}
-                className="absolute top-0 left-0 w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
                 playsInline
                 muted
               />
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[640px] h-[480px]">
-                <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
-              </div>
-              {/* Health Bars */}
-              <div className="absolute top-4 left-4 right-4 flex justify-between">
-                {players.map((player) => (
-                  <div
-                    key={player.id}
-                    className="flex flex-col items-center w-1/3 bg-black/60 p-3 rounded-lg shadow-md"
-                  >
-                    <span className="text-lg font-bold text-white mb-1">
-                      {player.id === socketId ? "You" : "Opponent"} ({player.id.slice(0, 4)})
-                    </span>
-                    <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-300 ${
-                          player.health > 50 ? "bg-green-500" : player.health > 20 ? "bg-yellow-500" : "bg-red-500"
-                        }`}
-                        style={{ width: `${player.health}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm text-gray-300 mt-1">{player.health}/100</span>
+              
+              {/* AR Canvas */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[min(100vw,640px)] h-[min(100vh,480px)] sm:w-[640px] sm:h-[480px] border-2 border-blue-400">
+                  <canvas ref={canvasRef} className="w-full h-full" />
+                </div>
+
+              {/* Tactical HUD - Health bars always shown on top */}
+              <div className="absolute inset-0 pointer-events-none">
+                {/* Top HUD - Player health bars always visible */}
+                <div className="absolute top-1 md:top-2 lg:top-4 left-1 md:left-2 lg:left-4 right-1 md:right-2 lg:right-4 flex justify-between items-start gap-1 md:gap-2 lg:gap-4 animate-slideDown">
+                  {/* Left Operator Panel */}
+                  <div className="tactical-overlay rounded p-1 md:p-2 lg:p-4 min-w-16 md:min-w-20 lg:min-w-48 max-w-xs hud-corner relative animate-slideLeft text-xs md:text-sm">
+                    <div className="scanline"></div>
+                    {players.map((player) => (
+                      player.id === socketId && (
+                        <div key={player.id}>
+                          <div className="flex justify-between items-center mb-1 md:mb-2">
+                            <div className="font-orbitron font-bold text-green-400 text-xs md:text-sm">
+                              OP-01
+                            </div>
+                            <div className="text-xs text-gray-400 hidden lg:block">
+                              {new Date().toLocaleTimeString()}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400 text-xs">HP:</span>
+                              <span className="text-green-400 font-orbitron font-bold ammo-counter text-xs">
+                                {player.health}%
+                              </span>
+                            </div>
+                            <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
+                              <div
+                                className={`h-full transition-all duration-500 ${
+                                  player.health > 70 ? "bg-green-400" : 
+                                  player.health > 30 ? "bg-yellow-400" : "bg-red-400"
+                                }`}
+                                style={{ width: `${player.health}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    ))}
                   </div>
-                ))}
+
+                  {/* Right Enemy Panel */}
+                  <div className="tactical-overlay-red rounded p-1 md:p-2 lg:p-4 min-w-16 md:min-w-20 lg:min-w-48 max-w-xs hud-corner relative animate-slideRight text-xs md:text-sm">
+                    <div className="scanline"></div>
+                    {players.map((player) => (
+                      player.id !== socketId && (
+                        <div key={player.id}>
+                          <div className="flex justify-between items-center mb-1 md:mb-2">
+                            <div className="font-orbitron font-bold text-red-400 text-xs md:text-sm">
+                              HOSTILE
+                            </div>
+                            <div className="w-2 h-2 md:w-3 md:h-3 bg-red-400 rounded-full animate-pulse"></div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400 text-xs">THREAT:</span>
+                              <span className="text-red-400 font-orbitron font-bold text-xs">
+                                {player.health > 70 ? "HIGH" : player.health > 30 ? "MED" : "LOW"}
+                              </span>
+                            </div>
+                            <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
+                              <div
+                                className="h-full bg-red-400 transition-all duration-500"
+                                style={{ width: `${player.health}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </div>
+
+                {/* Bottom HUD - Controls */}
+                <div className="absolute bottom-1 md:bottom-2 lg:bottom-4 left-1 md:left-2 lg:left-4 right-1 md:right-2 lg:right-4 flex flex-col sm:flex-row justify-between items-center gap-1 md:gap-2 lg:gap-4 animate-slideUp">
+                  {/* Camera Controls - Hidden on small screens for space */}
+                  <div className="tactical-overlay rounded p-1 md:p-2 lg:p-4 hud-corner animate-slideLeft pointer-events-auto w-full sm:w-auto  fixed bottom-2 left-1/2 transform -translate-x-1/2 z-10">
+                    <div className="font-orbitron text-xs font-bold text-green-400 mb-1">
+                      OPTIC
+                    </div>
+                    <select
+                      value={selectedDeviceId || ""}
+                      onChange={(e) => setSelectedDeviceId(e.target.value)}
+                      className="bg-transparent border border-green-400/30 rounded px-2 py-1 text-xs font-orbitron text-green-400 focus:outline-none focus:border-green-400 w-full"
+                    >
+                      {videoDevices.map((device, index) => (
+                        <option key={device.deviceId} value={device.deviceId} className="bg-black">
+                          CAM-{index + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Fire Control - Larger touch target on mobile */}
+                    <div className="tactical-overlay-red rounded p-2 md:p-3 lg:p-6 hud-corner relative animate-slideUp pointer-events-auto order-2 sm:order-2">
+                    <button
+                      onClick={handleShoot}
+                      className={`px-4 md:px-8 lg:px-12 py-2 md:py-4 lg:py-6 rounded-lg font-orbitron font-black text-sm md:text-base lg:text-xl transition-all duration-300 transform ${
+                      isReloading
+                        ? "bg-gray-700/50 cursor-not-allowed opacity-50 text-gray-400"
+                        : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/40 hover:scale-110 animate-breathing neon-text"
+                      }`}
+                      disabled={isReloading}
+                    >
+                      {isReloading ? "RELOAD" : "FIRE"}
+                    </button>
+                    </div>
+
+                    {/* Weapon Display - Compact on mobile */}
+                    <div className={`tactical-overlay${
+                    selectedGun === "sniper" ? "" : 
+                    selectedGun === "pistol" ? "-red" : "-yellow"
+                    } rounded p-1 md:p-2 lg:p-4 min-w-16 md:min-w-20 lg:min-w-32 text-center hud-corner relative animate-slideLeft w-full sm:w-auto order-1 sm:order-1`}>
+                    <div className="scanline"></div>
+                    <div className={`text-base md:text-xl lg:text-2xl mb-1 ${
+                      selectedGun === "sniper" ? "text-green-400" :
+                      selectedGun === "pistol" ? "text-red-400" : "text-yellow-400"
+                    }`}>
+                      {selectedGun === "sniper" ? "◊" : selectedGun === "pistol" ? "●" : "◈"}
+                    </div>
+                    <div className={`font-orbitron text-xs font-bold mb-1 ${
+                      selectedGun === "sniper" ? "text-green-400" :
+                      selectedGun === "pistol" ? "text-red-400" : "text-yellow-400"
+                    }`}>
+                      {selectedGun === "sniper" ? "SNP" : selectedGun === "pistol" ? "PST" : "SHG"}
+                    </div>
+                    <div className="text-xs text-gray-400 font-orbitron ammo-counter">
+                      {isReloading ? "RLD" : "RDY"}
+                    </div>
+                    </div>
+                </div>
               </div>
-              {/* Camera Select */}
-              <select
-                value={selectedDeviceId || ""}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDeviceId(e.target.value)}
-                className="absolute bottom-4 left-4 bg-gray-800 text-white p-2 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                {videoDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
-                  </option>
-                ))}
-              </select>
-              {/* Gun Display */}
-              <div
-                className={`absolute bottom-4 right-4 flex items-center bg-black/60 p-3 rounded-lg shadow-md ${
-                  selectedGun === "sniper"
-                    ? "border-2 border-green-500"
-                    : selectedGun === "pistol"
-                    ? "border-2 border-red-500"
-                    : "border-2 border-yellow-500"
-                }`}
-              >
-                <span
-                  className={`text-lg font-bold ${
-                    selectedGun === "sniper"
-                      ? "text-green-400"
-                      : selectedGun === "pistol"
-                      ? "text-red-400"
-                      : "text-yellow-400"
-                  }`}
-                >
-                  {selectedGun.charAt(0).toUpperCase() + selectedGun.slice(1)}
-                </span>
-              </div>
-              {/* Shoot Button */}
-              <button
-                onClick={handleShoot}
-                className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 text-white font-bold py-4 px-8 rounded-full shadow-xl transition-all ${
-                  isReloading
-                    ? "bg-gray-600 cursor-not-allowed"
-                    : "bg-red-600 hover:bg-red-700 animate-pulse"
-                }`}
-                disabled={isReloading}
-              >
-                {isReloading ? "Reloading..." : "Shoot"}
-              </button>
+
               <audio ref={sniperSoundRef} src="/sniper.mp3" preload="auto" />
               <audio ref={pistolSoundRef} src="/pistol.mp3" preload="auto" />
               <audio ref={shotgunSoundRef} src="/shotgun.mp3" preload="auto" />
@@ -636,15 +990,34 @@ export default function Game() {
           )}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white">
-          <h1 className="text-5xl mb-5">Game Over!</h1>
-          <p className="text-2xl mb-5">Winner: {winner === socketId ? "You" : "Opponent"}</p>
-          <button
-            onClick={handleReset}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-full shadow-lg"
-          >
-            Play Again
-          </button>
+        <div className="flex items-center justify-center min-h-screen p-4">
+          <div className="tactical-overlay rounded-lg p-6 sm:p-8 lg:p-12 text-center animate-fadeIn hud-corner relative max-w-sm sm:max-w-md">
+            <div className="scanline"></div>
+            <div className="text-6xl sm:text-7xl lg:text-8xl mb-6 sm:mb-8 animate-pulse">
+              {winner === socketId ? "🏆" : "💀"}
+            </div>
+            <h1 className="font-orbitron text-2xl sm:text-3xl lg:text-4xl font-black mb-3 sm:mb-4 neon-text">
+              {winner === socketId ? (
+                <span className="text-green-400">MISSION COMPLETE</span>
+              ) : (
+                <span className="text-red-400">KIA</span>
+              )}
+            </h1>
+            <p className="text-sm sm:text-base lg:text-lg mb-6 sm:mb-8 text-gray-400 font-orbitron">
+              {winner === socketId ? "TARGET ELIMINATED" : "OPERATOR DOWN"}
+            </p>
+            <div className="space-y-3 sm:space-y-4">
+              <div className="text-xs sm:text-sm text-gray-400 font-orbitron">
+                DEBRIEFING COMPLETE
+              </div>
+              <button
+                onClick={handleReset}
+                className="bg-blue-600/20 border-2 border-blue-400 text-blue-400 font-orbitron font-bold py-3 sm:py-4 px-8 sm:px-10 lg:px-12 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-blue-600/30 neon-text"
+              >
+                NEW MISSION
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
