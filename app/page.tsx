@@ -240,9 +240,6 @@ export default function Game() {
       const screenWidth = window.innerWidth;
       const screenHeight = window.innerHeight;
       const useLowRes = screenWidth < 640 || screenHeight < 480;
-      const inputWidth = useLowRes ? 320 : 640;
-      const inputHeight = useLowRes ? 240 : 480;
-
       netRef.current = await posenet.load({
         architecture: "MobileNetV1",
         outputStride: 16,
