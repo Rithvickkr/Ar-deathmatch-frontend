@@ -664,7 +664,7 @@ export default function Game() {
             {/* Main Title */}
             <div className="text-center mb-8 sm:mb-12">
               <h1 className="font-orbitron text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-green-400 mb-2 sm:mb-4 neon-text animate-glow">
-                AR WARFARE
+                D3ATHSYNC
               </h1>
               <div className="text-base sm:text-xl md:text-2xl font-orbitron text-gray-400 tracking-widest mb-2">
                 TACTICAL ENGAGEMENT SYSTEM
