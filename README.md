@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# D3ATHSYNC-frontend
+
+This is the frontend application for the AR Deathmatch game, designed to provide an immersive augmented reality multiplayer experience. Built primarily with TypeScript, this project acts as the user interface and client-side logic that interacts with the backend game server.
+
+## Features
+
+- Real-time multiplayer AR gameplay.
+- Responsive and intuitive UI for seamless user experience.
+- Integration with backend server for player authentication, matchmaking, and game state updates.
+- Optimized for performance and scalability.
+
+## Tech Stack
+
+- **TypeScript** (main language)
+- JavaScript
+- CSS
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js (v16 or later)
+- npm or yarn
+
+### Installation
 
 ```bash
-npm run dev
+git clone https://github.com/Rithvickkr/Ar-deathmatch-frontend.git
+cd Ar-deathmatch-frontend
+npm install
 # or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+yarn install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Running the App
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm start
+# or
+yarn start
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The application will be available at `http://localhost:3000` (or the configured port).
 
-## Learn More
+## Environment Variables
 
-To learn more about Next.js, take a look at the following resources:
+Create a `.env` file in the root directory and configure any necessary variables such as API endpoints.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Folder Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `/src`: Source code for components, pages, and utilities.
+- `/public`: Static assets.
+- `/assets`: Images, icons, etc.
 
-## Deploy on Vercel
+## Contributing
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Pull requests are welcome! Please open issues for suggestions or bug reports.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+[MIT](LICENSE)
