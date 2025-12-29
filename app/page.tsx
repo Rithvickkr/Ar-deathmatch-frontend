@@ -209,7 +209,7 @@ export default function Game() {
         // Additional iOS Safari check
         if (!navigator.mediaDevices?.getUserMedia) {
           setCameraError(
-            "Camera API not available. On iOS, please ensure you're using Safari with HTTPS or try from a desktop browser."
+            "Camera API not available. On iOS, please ensure you&apos;re using Safari with HTTPS or try from a desktop browser."
           );
           return;
         }
@@ -842,7 +842,7 @@ export default function Game() {
                   JOIN PRIVATE ROOM
                 </h2>
                 <p className="text-gray-400 text-sm sm:text-base mb-4">
-                  Enter your friend's room code to join their game
+                  Enter your friend&apos;s room code to join their game
                 </p>
                 <div className="space-y-4">
                   <input
