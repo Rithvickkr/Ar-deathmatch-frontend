@@ -1,2 +1,0 @@
-# PowerShell script to create self-signed certificate for HTTPS development
-New-SelfSignedCertificate -DnsName "172.20.10.14", "localhost" -CertStoreLocation "cert:\LocalMachine\My" -NotAfter (Get-Date).AddYears(1)

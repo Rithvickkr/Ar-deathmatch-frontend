@@ -50,25 +50,6 @@ export default function Game() {
     // Request camera permission early to populate device details
     const requestCameraPermission = async () => {
       try {
-        // Check if we're on iOS Safari and not using HTTPS
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
-        
-        if (isIOS && !isSecure) {
-          setCameraError(
-            "Camera access requires HTTPS on iOS devices. Please use a secure connection or try from a computer."
-          );
-          return;
-        }
-
-        // Check if mediaDevices API is available
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setCameraError(
-            "Camera access is not supported on this browser. Please try using Chrome, Firefox, or Safari on a secure connection."
-          );
-          return;
-        }
-
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         stream.getTracks().forEach((track) => track.stop());
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -100,21 +81,9 @@ export default function Game() {
 
     requestCameraPermission();
 
-    // Connect to server using environment variable or fallback  
-    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 
-      (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-        ? "http://localhost:3001" 
-        : "https://ar-game-server.onrender.com");
-    
-    console.log("Environment:", process.env.NODE_ENV);
-    console.log("Hostname:", typeof window !== 'undefined' ? window.location.hostname : 'server');
-    console.log("Connecting to server:", serverUrl);
-    
-    socketRef.current = io(serverUrl, {
+    socketRef.current = io("https://ar-game-server.onrender.com", {
       reconnection: true,
       reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      timeout: 20000,
     });
 
     socketRef.current.on("connect", () => {
@@ -147,6 +116,10 @@ export default function Game() {
     socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
       setPlayers(updatedPlayers);
+      // Check if both players are ready for countdown
+      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
+        startCountdown();
+      }
     });
 
     socketRef.current.on("gameOver", ({ winner }: { winner: string }) => {
@@ -160,15 +133,6 @@ export default function Game() {
 
     socketRef.current.on("connect_error", (err: { message: string }) => {
       console.error("Connection failed:", err.message);
-      setCameraError(`Connection failed: ${err.message}. Please make sure the server is running on port 3001.`);
-    });
-
-    socketRef.current.on("disconnect", (reason: string) => {
-      console.log("Disconnected:", reason);
-      if (reason === "io server disconnect") {
-        // Server disconnected us, try to reconnect
-        socketRef.current?.connect();
-      }
     });
 
     return () => {
@@ -176,28 +140,10 @@ export default function Game() {
     };
   }, []);
 
-  // Check for countdown when players or gameStatus changes
+  // Start camera only when in waiting state
   useEffect(() => {
-    console.log("Checking countdown conditions:", {
-      playersLength: players.length,
-      allReady: players.every((p) => p.ready),
-      gameStatus: gameStatus,
-      countdown: countdown
-    });
-    
-    if (players.length === 2 && 
-        players.every((p) => p.ready) && 
-        gameStatus === "waiting" && 
-        countdown === null) {
-      console.log("Starting countdown!");
-      startCountdown();
-    }
-  }, [players, gameStatus, countdown]);
-
-  // Start camera only when in ready state (after countdown)
-  useEffect(() => {
-    if (gameStatus !== "ready" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
-      console.log("Not ready for camera yet:", {
+    if (gameStatus !== "waiting" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
+      console.log("Not ready yet:", {
         gameStatus,
         video: !!videoRef.current,
         canvas: !!canvasRef.current,
@@ -207,24 +153,10 @@ export default function Game() {
     }
 
     console.log("Starting camera and AR with device:", selectedDeviceId);
-    console.log("Game status is 'ready', initializing camera and AR...");
 
     const attemptCameraAccess = async () => {
       try {
-        // Additional iOS Safari check
-        if (!navigator.mediaDevices?.getUserMedia) {
-          setCameraError(
-            "Camera API not available. On iOS, please ensure you&apos;re using Safari with HTTPS or try from a desktop browser."
-          );
-          return;
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
-            facingMode: 'environment' // Prefer back camera on mobile
-          } 
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } });
         console.log("Camera stream obtained");
         videoRef.current!.srcObject = stream;
         videoRef.current!.width = 640; // PoseNet processing size
@@ -344,15 +276,12 @@ export default function Game() {
 
   // Start 5-second countdown when both players are ready
   const startCountdown = () => {
-    console.log("startCountdown called - beginning 5 second countdown");
     let timeLeft = 5;
     setCountdown(timeLeft);
     const timer = setInterval(() => {
       timeLeft -= 1;
-      console.log("Countdown:", timeLeft);
       setCountdown(timeLeft);
       if (timeLeft <= 0) {
-        console.log("Countdown finished, starting game!");
         clearInterval(timer);
         setCountdown(null);
         setGameStatus("ready");
@@ -581,14 +510,8 @@ export default function Game() {
     if (socketRef.current && socketId) {
       const player = players.find((p) => p.id === socketId);
       if (player) {
-        const newReadyState = !player.ready;
-        console.log("Toggling ready status:", {
-          playerId: socketId,
-          currentReady: player.ready,
-          newReady: newReadyState,
-          totalPlayers: players.length
-        });
-        socketRef.current.emit("setReady", { playerId: socketId, ready: newReadyState });
+        socketRef.current.emit("setReady", { playerId: socketId, ready: !player.ready });
+        console.log("Toggled ready status:", !player.ready);
       }
     }
   };
@@ -847,7 +770,7 @@ export default function Game() {
                   JOIN PRIVATE ROOM
                 </h2>
                 <p className="text-gray-400 text-sm sm:text-base mb-4">
-                  Enter your friend&apos;s room code to join their game
+                  Enter your friend's room code to join their game
                 </p>
                 <div className="space-y-4">
                   <input
@@ -1087,34 +1010,15 @@ export default function Game() {
               <div className="tactical-overlay-red rounded-lg p-6 sm:p-8 max-w-md text-center animate-fadeIn hud-corner relative">
                 <div className="text-red-400 text-4xl sm:text-6xl mb-4 sm:mb-6 animate-pulse">⚠</div>
                 <h2 className="font-orbitron text-lg sm:text-xl font-bold text-red-400 mb-3 sm:mb-4">
-                  CAMERA ACCESS ERROR
+                  SYSTEM ERROR
                 </h2>
                 <p className="text-xs sm:text-sm mb-4 sm:mb-6 text-gray-300">{cameraError}</p>
-                
-                {/* iOS specific instructions */}
-                {/iPad|iPhone|iPod/.test(navigator.userAgent) && (
-                  <div className="mb-4 p-3 bg-blue-900/20 border border-blue-400 rounded text-xs text-blue-300">
-                    <strong>iOS Users:</strong> Camera requires HTTPS. Try:
-                    <br />• Using Chrome instead of Safari
-                    <br />• Playing from a desktop/laptop
-                    <br />• Contact admin for HTTPS setup
-                  </div>
-                )}
-                
-                <div className="space-y-3">
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30 w-full"
-                  >
-                    RETRY SYSTEM
-                  </button>
-                  <button
-                    onClick={leaveRoom}
-                    className="bg-gray-600/20 border-2 border-gray-400 text-gray-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-gray-600/30 w-full"
-                  >
-                    BACK TO LOBBY
-                  </button>
-                </div>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30"
+                >
+                  RETRY SYSTEM
+                </button>
               </div>
             </div>
           ) : (
