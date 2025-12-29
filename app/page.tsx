@@ -10,15 +10,28 @@ interface Player {
   id: string;
   health: number;
   ready: boolean;
+  isHost?: boolean;
+}
+
+interface RoomState {
+  isInRoom: boolean;
+  roomCode: string | null;
+  isHost: boolean;
 }
 
 export default function Game() {
   const [players, setPlayers] = useState<Player[]>([]);
-  const [gameStatus, setGameStatus] = useState<"waiting" | "ready" | "over">("waiting");
+  const [gameStatus, setGameStatus] = useState<"lobby" | "waiting" | "ready" | "over">("lobby");
   const [socketId, setSocketId] = useState<string | null>(null);
   const [winner, setWinner] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [roomState, setRoomState] = useState<RoomState>({ 
+    isInRoom: false, 
+    roomCode: null, 
+    isHost: false 
+  });
+  const [joinRoomCode, setJoinRoomCode] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastShot, setLastShot] = useState<number>(0);
@@ -37,6 +50,25 @@ export default function Game() {
     // Request camera permission early to populate device details
     const requestCameraPermission = async () => {
       try {
+        // Check if we're on iOS Safari and not using HTTPS
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+        
+        if (isIOS && !isSecure) {
+          setCameraError(
+            "Camera access requires HTTPS on iOS devices. Please use a secure connection or try from a computer."
+          );
+          return;
+        }
+
+        // Check if mediaDevices API is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setCameraError(
+            "Camera access is not supported on this browser. Please try using Chrome, Firefox, or Safari on a secure connection."
+          );
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         stream.getTracks().forEach((track) => track.stop());
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -68,24 +100,48 @@ export default function Game() {
 
     requestCameraPermission();
 
-    socketRef.current = io("https://ar-game-server.onrender.com", {
+    // Connect to server using environment variable or fallback  
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://172.20.10.14:3001";
+    
+    console.log("Connecting to server:", serverUrl);
+    
+    socketRef.current = io(serverUrl, {
       reconnection: true,
       reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 20000,
     });
 
     socketRef.current.on("connect", () => {
       console.log("Connected as:", socketRef.current!.id);
       setSocketId(socketRef.current!.id || null);
-      socketRef.current!.emit("joinGame");
+      // Don't auto-join game anymore - user must choose room
+    });
+
+    socketRef.current.on("roomCreated", ({ roomCode }: { roomCode: string }) => {
+      console.log("Room created:", roomCode);
+      setRoomState({ isInRoom: true, roomCode, isHost: true });
+      setGameStatus("waiting");
+    });
+
+    socketRef.current.on("roomJoined", ({ roomCode }: { roomCode: string }) => {
+      console.log("Room joined:", roomCode);
+      setRoomState({ isInRoom: true, roomCode, isHost: false });
+      setGameStatus("waiting");
+    });
+
+    socketRef.current.on("joinError", ({ message }: { message: string }) => {
+      console.error("Join error:", message);
+      alert(`Failed to join room: ${message}`);
+    });
+
+    socketRef.current.on("gameFull", () => {
+      alert("Game is full! Please try again later.");
     });
 
     socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
       setPlayers(updatedPlayers);
-      // Check if both players are ready for countdown
-      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
-        startCountdown();
-      }
     });
 
     socketRef.current.on("gameOver", ({ winner }: { winner: string }) => {
@@ -99,34 +155,44 @@ export default function Game() {
 
     socketRef.current.on("connect_error", (err: { message: string }) => {
       console.error("Connection failed:", err.message);
+      setCameraError(`Connection failed: ${err.message}. Please make sure the server is running on port 3001.`);
+    });
+
+    socketRef.current.on("disconnect", (reason: string) => {
+      console.log("Disconnected:", reason);
+      if (reason === "io server disconnect") {
+        // Server disconnected us, try to reconnect
+        socketRef.current?.connect();
+      }
     });
 
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [gameStatus]);
+  }, []);
 
-  // Start 5-second countdown when both players are ready
-  const startCountdown = () => {
-    let timeLeft = 5;
-    setCountdown(timeLeft);
-    const timer = setInterval(() => {
-      timeLeft -= 1;
-      setCountdown(timeLeft);
-      if (timeLeft <= 0) {
-        clearInterval(timer);
-        setCountdown(null);
-        setGameStatus("ready");
-      }
-    }, 1000);
-  };
-
-  // Toggle ready status
-  // toggleReady function already declared below
-
+  // Check for countdown when players or gameStatus changes
   useEffect(() => {
-    if (gameStatus === "waiting" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
-      console.log("Not ready yet:", {
+    console.log("Checking countdown conditions:", {
+      playersLength: players.length,
+      allReady: players.every((p) => p.ready),
+      gameStatus: gameStatus,
+      countdown: countdown
+    });
+    
+    if (players.length === 2 && 
+        players.every((p) => p.ready) && 
+        gameStatus === "waiting" && 
+        countdown === null) {
+      console.log("Starting countdown!");
+      startCountdown();
+    }
+  }, [players, gameStatus, countdown]);
+
+  // Start camera only when in ready state (after countdown)
+  useEffect(() => {
+    if (gameStatus !== "ready" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
+      console.log("Not ready for camera yet:", {
         gameStatus,
         video: !!videoRef.current,
         canvas: !!canvasRef.current,
@@ -136,10 +202,24 @@ export default function Game() {
     }
 
     console.log("Starting camera and AR with device:", selectedDeviceId);
+    console.log("Game status is 'ready', initializing camera and AR...");
 
     const attemptCameraAccess = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: selectedDeviceId } } });
+        // Additional iOS Safari check
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setCameraError(
+            "Camera API not available. On iOS, please ensure you're using Safari with HTTPS or try from a desktop browser."
+          );
+          return;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+            facingMode: 'environment' // Prefer back camera on mobile
+          } 
+        });
         console.log("Camera stream obtained");
         videoRef.current!.srcObject = stream;
         videoRef.current!.width = 640; // PoseNet processing size
@@ -256,6 +336,51 @@ export default function Game() {
       console.log("Animation started");
     };
   }, [gameStatus, selectedDeviceId, selectedGun]);
+
+  // Start 5-second countdown when both players are ready
+  const startCountdown = () => {
+    console.log("startCountdown called - beginning 5 second countdown");
+    let timeLeft = 5;
+    setCountdown(timeLeft);
+    const timer = setInterval(() => {
+      timeLeft -= 1;
+      console.log("Countdown:", timeLeft);
+      setCountdown(timeLeft);
+      if (timeLeft <= 0) {
+        console.log("Countdown finished, starting game!");
+        clearInterval(timer);
+        setCountdown(null);
+        setGameStatus("ready");
+      }
+    }, 1000);
+  };
+
+  const createRoom = () => {
+    if (socketRef.current) {
+      socketRef.current.emit("createRoom");
+    }
+  };
+
+  const joinRoom = () => {
+    if (socketRef.current && joinRoomCode.trim()) {
+      socketRef.current.emit("joinRoom", { roomCode: joinRoomCode.trim().toUpperCase() });
+    } else {
+      alert("Please enter a valid room code");
+    }
+  };
+
+  const joinRandomGame = () => {
+    if (socketRef.current) {
+      socketRef.current.emit("joinGame");
+    }
+  };
+
+  const copyRoomCode = () => {
+    if (roomState.roomCode) {
+      navigator.clipboard.writeText(roomState.roomCode);
+      alert("Room code copied to clipboard!");
+    }
+  };
 
   const handleShoot = async () => {
     console.log("Shoot button pressed");
@@ -437,12 +562,28 @@ export default function Game() {
     socketRef.current?.emit("resetGame");
   };
 
+  const leaveRoom = () => {
+    setRoomState({ isInRoom: false, roomCode: null, isHost: false });
+    setGameStatus("lobby");
+    setPlayers([]);
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current.connect();
+    }
+  };
+
   const toggleReady = () => {
     if (socketRef.current && socketId) {
       const player = players.find((p) => p.id === socketId);
       if (player) {
-        socketRef.current.emit("setReady", { playerId: socketId, ready: !player.ready });
-        console.log("Toggled ready status:", !player.ready);
+        const newReadyState = !player.ready;
+        console.log("Toggling ready status:", {
+          playerId: socketId,
+          currentReady: player.ready,
+          newReady: newReadyState,
+          totalPlayers: players.length
+        });
+        socketRef.current.emit("setReady", { playerId: socketId, ready: newReadyState });
       }
     }
   };
@@ -658,7 +799,94 @@ export default function Game() {
         <div className="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-green-400 to-transparent opacity-30 animate-scanline"></div>
       </div>
 
-      {gameStatus === "waiting" ? (
+      {gameStatus === "lobby" ? (
+        <div className="flex items-center justify-center min-h-screen p-2 sm:p-4 lg:p-8">
+          <div className="w-full max-w-2xl animate-fadeIn">
+            {/* Main Title */}
+            <div className="text-center mb-8 sm:mb-12">
+              <h1 className="font-orbitron text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-green-400 mb-2 sm:mb-4 neon-text animate-glow">
+                D3ATHSYNC
+              </h1>
+              <div className="text-base sm:text-xl md:text-2xl font-orbitron text-gray-400 tracking-widest mb-2">
+                TACTICAL ENGAGEMENT SYSTEM
+              </div>
+              <div className="w-full h-px bg-gradient-to-r from-transparent via-green-400 to-transparent opacity-50"></div>
+              <div className="text-xs sm:text-sm text-green-400 mt-2 font-orbitron">
+                [ MULTIPLAYER LOBBY ]
+              </div>
+            </div>
+
+            {/* Room Options */}
+            <div className="space-y-6 sm:space-y-8">
+              {/* Create Room */}
+              <div className="tactical-overlay rounded-lg p-6 sm:p-8 animate-slideUp hud-corner relative">
+                <h2 className="font-orbitron text-xl sm:text-2xl font-bold text-green-400 mb-4 flex items-center">
+                  <span className="w-3 h-3 bg-green-400 rounded-full mr-3 animate-pulse"></span>
+                  CREATE PRIVATE ROOM
+                </h2>
+                <p className="text-gray-400 text-sm sm:text-base mb-6">
+                  Create a private game room and share the code with your friend
+                </p>
+                <button
+                  onClick={createRoom}
+                  className="w-full bg-green-600/20 border-2 border-green-400 text-green-400 font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 hover:bg-green-600/30 neon-text"
+                >
+                  █ CREATE ROOM
+                </button>
+              </div>
+
+              {/* Join Room */}
+              <div className="tactical-overlay-blue rounded-lg p-6 sm:p-8 animate-slideUp hud-corner relative" style={{animationDelay: '0.2s'}}>
+                <h2 className="font-orbitron text-xl sm:text-2xl font-bold text-blue-400 mb-4 flex items-center">
+                  <span className="w-3 h-3 bg-blue-400 rounded-full mr-3 animate-pulse"></span>
+                  JOIN PRIVATE ROOM
+                </h2>
+                <p className="text-gray-400 text-sm sm:text-base mb-4">
+                  Enter your friend's room code to join their game
+                </p>
+                <div className="space-y-4">
+                  <input
+                    type="text"
+                    placeholder="Enter room code (e.g. ABC123)"
+                    value={joinRoomCode}
+                    onChange={(e) => setJoinRoomCode(e.target.value.toUpperCase())}
+                    maxLength={6}
+                    className="w-full bg-transparent border-2 border-blue-400/30 rounded-lg px-4 py-3 text-blue-400 font-orbitron text-lg text-center tracking-widest focus:outline-none focus:border-blue-400 placeholder-gray-500"
+                  />
+                  <button
+                    onClick={joinRoom}
+                    disabled={!joinRoomCode.trim()}
+                    className={`w-full font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 ${
+                      joinRoomCode.trim()
+                        ? "bg-blue-600/20 border-2 border-blue-400 text-blue-400 hover:bg-blue-600/30 neon-text"
+                        : "bg-gray-700/20 border-2 border-gray-600 text-gray-600 cursor-not-allowed"
+                    }`}
+                  >
+                    ◌ JOIN ROOM
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Match */}
+              <div className="tactical-overlay-yellow rounded-lg p-6 sm:p-8 animate-slideUp hud-corner relative" style={{animationDelay: '0.4s'}}>
+                <h2 className="font-orbitron text-xl sm:text-2xl font-bold text-yellow-400 mb-4 flex items-center">
+                  <span className="w-3 h-3 bg-yellow-400 rounded-full mr-3 animate-pulse"></span>
+                  QUICK MATCH
+                </h2>
+                <p className="text-gray-400 text-sm sm:text-base mb-6">
+                  Join a public game with any available player
+                </p>
+                <button
+                  onClick={joinRandomGame}
+                  className="w-full bg-yellow-600/20 border-2 border-yellow-400 text-yellow-400 font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 hover:bg-yellow-600/30 neon-text"
+                >
+                  ⚡ QUICK MATCH
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : gameStatus === "waiting" ? (
         <div className="flex items-center justify-center min-h-screen p-2 sm:p-4 lg:p-8">
           <div className="w-full max-w-4xl animate-fadeIn">
             {/* Main Title */}
@@ -674,6 +902,38 @@ export default function Game() {
                 [ CLASSIFIED OPERATION ]
               </div>
             </div>
+
+            {/* Room Info Panel */}
+            {roomState.isInRoom && roomState.roomCode && (
+              <div className="tactical-overlay rounded-lg p-4 sm:p-6 mb-6 animate-slideDown hud-corner relative">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="font-orbitron text-lg font-bold text-green-400">
+                      ROOM: {roomState.roomCode}
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      {roomState.isHost ? "HOST" : "GUEST"} • PRIVATE ROOM
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    {roomState.isHost && (
+                      <button
+                        onClick={copyRoomCode}
+                        className="bg-blue-600/20 border border-blue-400 text-blue-400 font-orbitron text-xs px-3 py-1 rounded transition-all hover:bg-blue-600/30"
+                      >
+                        SHARE CODE
+                      </button>
+                    )}
+                    <button
+                      onClick={leaveRoom}
+                      className="bg-red-600/20 border border-red-400 text-red-400 font-orbitron text-xs px-3 py-1 rounded transition-all hover:bg-red-600/30"
+                    >
+                      LEAVE
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Mission Briefing Panel */}
             <div className="tactical-overlay rounded-lg p-4 sm:p-6 lg:p-8 mb-6 sm:mb-8 animate-slideUp hud-corner relative">
@@ -822,15 +1082,34 @@ export default function Game() {
               <div className="tactical-overlay-red rounded-lg p-6 sm:p-8 max-w-md text-center animate-fadeIn hud-corner relative">
                 <div className="text-red-400 text-4xl sm:text-6xl mb-4 sm:mb-6 animate-pulse">⚠</div>
                 <h2 className="font-orbitron text-lg sm:text-xl font-bold text-red-400 mb-3 sm:mb-4">
-                  SYSTEM ERROR
+                  CAMERA ACCESS ERROR
                 </h2>
                 <p className="text-xs sm:text-sm mb-4 sm:mb-6 text-gray-300">{cameraError}</p>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30"
-                >
-                  RETRY SYSTEM
-                </button>
+                
+                {/* iOS specific instructions */}
+                {/iPad|iPhone|iPod/.test(navigator.userAgent) && (
+                  <div className="mb-4 p-3 bg-blue-900/20 border border-blue-400 rounded text-xs text-blue-300">
+                    <strong>iOS Users:</strong> Camera requires HTTPS. Try:
+                    <br />• Using Chrome instead of Safari
+                    <br />• Playing from a desktop/laptop
+                    <br />• Contact admin for HTTPS setup
+                  </div>
+                )}
+                
+                <div className="space-y-3">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30 w-full"
+                  >
+                    RETRY SYSTEM
+                  </button>
+                  <button
+                    onClick={leaveRoom}
+                    className="bg-gray-600/20 border-2 border-gray-400 text-gray-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-gray-600/30 w-full"
+                  >
+                    BACK TO LOBBY
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -1007,12 +1286,20 @@ export default function Game() {
               <div className="text-xs sm:text-sm text-gray-400 font-orbitron">
                 DEBRIEFING COMPLETE
               </div>
-              <button
-                onClick={handleReset}
-                className="bg-blue-600/20 border-2 border-blue-400 text-blue-400 font-orbitron font-bold py-3 sm:py-4 px-8 sm:px-10 lg:px-12 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-blue-600/30 neon-text"
-              >
-                NEW MISSION
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <button
+                  onClick={handleReset}
+                  className="bg-blue-600/20 border-2 border-blue-400 text-blue-400 font-orbitron font-bold py-3 sm:py-4 px-6 sm:px-8 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-blue-600/30 neon-text flex-1"
+                >
+                  NEW MISSION
+                </button>
+                <button
+                  onClick={leaveRoom}
+                  className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold py-3 sm:py-4 px-6 sm:px-8 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30 neon-text flex-1"
+                >
+                  LEAVE ROOM
+                </button>
+              </div>
             </div>
           </div>
         </div>
