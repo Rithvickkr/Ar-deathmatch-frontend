@@ -32,6 +32,7 @@ export default function Game() {
     isHost: false 
   });
   const [joinRoomCode, setJoinRoomCode] = useState<string>("");
+  const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected" | "error">("connecting");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [lastShot, setLastShot] = useState<number>(0);
@@ -81,15 +82,49 @@ export default function Game() {
 
     requestCameraPermission();
 
-    socketRef.current = io("https://ar-game-server.onrender.com", {
+    // Use environment variable for backend URL, fallback to deployed server
+    const serverUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://ar-game-server.onrender.com";
+    
+    console.log("Connecting to server:", serverUrl);
+    
+    socketRef.current = io(serverUrl, {
       reconnection: true,
       reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000,
+      transports: ['websocket', 'polling']
     });
 
     socketRef.current.on("connect", () => {
-      console.log("Connected as:", socketRef.current!.id);
+      console.log("Connected to server:", socketRef.current!.id);
       setSocketId(socketRef.current!.id || null);
+      setConnectionStatus("connected");
       // Don't auto-join game anymore - user must choose room
+    });
+
+    socketRef.current.on("connect_error", (error) => {
+      console.error("Connection failed:", error.message);
+      setConnectionStatus("error");
+      alert(`Connection failed: ${error.message}. Please check your internet connection and try again.`);
+    });
+
+    socketRef.current.on("disconnect", (reason) => {
+      console.log("Disconnected from server:", reason);
+      setConnectionStatus("disconnected");
+      if (reason === "io server disconnect") {
+        // Server disconnected us, try to reconnect
+        socketRef.current?.connect();
+      }
+    });
+
+    socketRef.current.on("reconnect", () => {
+      console.log("Reconnected to server");
+      setConnectionStatus("connected");
+    });
+
+    socketRef.current.on("reconnecting", () => {
+      console.log("Attempting to reconnect...");
+      setConnectionStatus("connecting");
     });
 
     socketRef.current.on("roomCreated", ({ roomCode }: { roomCode: string }) => {
@@ -131,14 +166,10 @@ export default function Game() {
       }
     });
 
-    socketRef.current.on("connect_error", (err: { message: string }) => {
-      console.error("Connection failed:", err.message);
-    });
-
     return () => {
       socketRef.current?.disconnect();
     };
-  }, []);
+  }, [gameStatus]);
 
   // Start camera only when in waiting state
   useEffect(() => {
@@ -742,6 +773,24 @@ export default function Game() {
               <div className="text-xs sm:text-sm text-green-400 mt-2 font-orbitron">
                 [ MULTIPLAYER LOBBY ]
               </div>
+              
+              {/* Connection Status */}
+              <div className={`mt-4 text-xs font-orbitron flex items-center justify-center space-x-2 ${
+                connectionStatus === "connected" ? "text-green-400" :
+                connectionStatus === "connecting" ? "text-yellow-400" :
+                connectionStatus === "disconnected" ? "text-orange-400" : "text-red-400"
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  connectionStatus === "connected" ? "bg-green-400 animate-pulse" :
+                  connectionStatus === "connecting" ? "bg-yellow-400 animate-pulse" :
+                  connectionStatus === "disconnected" ? "bg-orange-400 animate-pulse" : "bg-red-400"
+                }`}></div>
+                <span>
+                  {connectionStatus === "connected" ? "ONLINE" :
+                   connectionStatus === "connecting" ? "CONNECTING..." :
+                   connectionStatus === "disconnected" ? "RECONNECTING..." : "CONNECTION ERROR"}
+                </span>
+              </div>
             </div>
 
             {/* Room Options */}
@@ -757,7 +806,12 @@ export default function Game() {
                 </p>
                 <button
                   onClick={createRoom}
-                  className="w-full bg-green-600/20 border-2 border-green-400 text-green-400 font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 hover:bg-green-600/30 neon-text"
+                  disabled={connectionStatus !== "connected"}
+                  className={`w-full font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 ${
+                    connectionStatus === "connected"
+                      ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30 neon-text"
+                      : "bg-gray-700/20 border-2 border-gray-600 text-gray-600 cursor-not-allowed"
+                  }`}
                 >
                   █ CREATE ROOM
                 </button>
@@ -770,7 +824,7 @@ export default function Game() {
                   JOIN PRIVATE ROOM
                 </h2>
                 <p className="text-gray-400 text-sm sm:text-base mb-4">
-                  Enter your friend's room code to join their game
+                  Enter your friend&apos;s room code to join their game
                 </p>
                 <div className="space-y-4">
                   <input
@@ -783,9 +837,9 @@ export default function Game() {
                   />
                   <button
                     onClick={joinRoom}
-                    disabled={!joinRoomCode.trim()}
+                    disabled={!joinRoomCode.trim() || connectionStatus !== "connected"}
                     className={`w-full font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 ${
-                      joinRoomCode.trim()
+                      joinRoomCode.trim() && connectionStatus === "connected"
                         ? "bg-blue-600/20 border-2 border-blue-400 text-blue-400 hover:bg-blue-600/30 neon-text"
                         : "bg-gray-700/20 border-2 border-gray-600 text-gray-600 cursor-not-allowed"
                     }`}
@@ -806,7 +860,12 @@ export default function Game() {
                 </p>
                 <button
                   onClick={joinRandomGame}
-                  className="w-full bg-yellow-600/20 border-2 border-yellow-400 text-yellow-400 font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 hover:bg-yellow-600/30 neon-text"
+                  disabled={connectionStatus !== "connected"}
+                  className={`w-full font-orbitron font-bold py-4 px-6 text-lg rounded-lg transition-all transform hover:scale-105 ${
+                    connectionStatus === "connected"
+                      ? "bg-yellow-600/20 border-2 border-yellow-400 text-yellow-400 hover:bg-yellow-600/30 neon-text"
+                      : "bg-gray-700/20 border-2 border-gray-600 text-gray-600 cursor-not-allowed"
+                  }`}
                 >
                   ⚡ QUICK MATCH
                 </button>
