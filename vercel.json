@@ -1,0 +1,10 @@
+{
+  "env": {
+    "NEXT_PUBLIC_SERVER_URL": "https://ar-game-server.onrender.com"
+  },
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_SERVER_URL": "https://ar-game-server.onrender.com"
+    }
+  }
+}

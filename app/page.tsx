@@ -101,8 +101,13 @@ export default function Game() {
     requestCameraPermission();
 
     // Connect to server using environment variable or fallback  
-    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || "http://172.20.10.14:3001";
+    const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 
+      (typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+        ? "http://localhost:3001" 
+        : "https://ar-game-server.onrender.com");
     
+    console.log("Environment:", process.env.NODE_ENV);
+    console.log("Hostname:", typeof window !== 'undefined' ? window.location.hostname : 'server');
     console.log("Connecting to server:", serverUrl);
     
     socketRef.current = io(serverUrl, {
