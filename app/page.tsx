@@ -96,9 +96,11 @@ export default function Game() {
     
     socketRef.current = io(serverUrl, {
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      timeout: 10000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      forceNew: false,
       transports: ['websocket', 'polling']
     });
 
