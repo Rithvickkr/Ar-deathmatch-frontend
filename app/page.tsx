@@ -169,6 +169,8 @@ export default function Game() {
 
     socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
+      console.log("Current socketId:", socketId);
+      console.log("Players with isHost property:", updatedPlayers.map(p => ({ id: p.id, isHost: p.isHost })));
       setPlayers(updatedPlayers);
       // Check if both players are ready for countdown
       if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
@@ -1001,16 +1003,19 @@ export default function Game() {
                     </div>
                     
                     {player.id === socketId && (
-                      <button
-                        onClick={toggleReady}
-                        className={`w-full mt-3 sm:mt-4 py-2 sm:py-3 px-3 sm:px-4 rounded-lg font-orbitron font-bold text-xs sm:text-sm transition-all duration-300 transform hover:scale-105 ${
-                          player.ready
-                            ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30"
-                            : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/30"
-                        }`}
-                      >
-                        {player.ready ? "█ READY FOR COMBAT" : "◌ ENTER READY STATE"}
-                      </button>
+                      <>
+                        {console.log(`Rendering ready button for player ${player.id}, socketId: ${socketId}, match: ${player.id === socketId}`)}
+                        <button
+                          onClick={toggleReady}
+                          className={`w-full mt-3 sm:mt-4 py-2 sm:py-3 px-3 sm:px-4 rounded-lg font-orbitron font-bold text-xs sm:text-sm transition-all duration-300 transform hover:scale-105 ${
+                            player.ready
+                              ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30"
+                              : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/30"
+                          }`}
+                        >
+                          {player.ready ? "█ READY FOR COMBAT" : "◌ ENTER READY STATE"}
+                        </button>
+                      </>
                     )}
                   </div>
                 ))}
