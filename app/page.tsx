@@ -19,6 +19,13 @@ interface RoomState {
   isHost: boolean;
 }
 
+interface RoomInfo {
+  error?: string;
+  code: string;
+  players: Player[];
+  createdAt: string;
+}
+
 export default function Game() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [gameStatus, setGameStatus] = useState<"lobby" | "waiting" | "ready" | "over">("lobby");
@@ -141,7 +148,17 @@ export default function Game() {
 
     socketRef.current.on("joinError", ({ message }: { message: string }) => {
       console.error("Join error:", message);
-      alert(`Failed to join room: ${message}`);
+      setJoinRoomCode(""); // Clear the input
+      alert(`❌ Failed to join room: ${message}\n\nPlease check:\n• Room code is correct (6 characters)\n• Room still exists\n• Room is not full (max 2 players)`);
+    });
+
+    socketRef.current.on("roomInfo", (info: RoomInfo) => {
+      console.log("Room info received:", info);
+      if (info.error) {
+        console.log("Room debug info: Room does not exist");
+      } else {
+        console.log(`Room debug info: ${info.code} has ${info.players.length} players, created at ${new Date(info.createdAt)}`);
+      }
     });
 
     socketRef.current.on("gameFull", () => {
@@ -328,7 +345,14 @@ export default function Game() {
 
   const joinRoom = () => {
     if (socketRef.current && joinRoomCode.trim()) {
-      socketRef.current.emit("joinRoom", { roomCode: joinRoomCode.trim().toUpperCase() });
+      const roomCode = joinRoomCode.trim().toUpperCase();
+      console.log(`Attempting to join room: ${roomCode}`);
+      
+      // First check if room exists (debug)
+      socketRef.current.emit("getRoomInfo", { roomCode });
+      
+      // Then attempt to join
+      socketRef.current.emit("joinRoom", { roomCode });
     } else {
       alert("Please enter a valid room code");
     }
