@@ -958,7 +958,14 @@ export default function Game() {
               
               {/* Operator Status */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
-                {players.map((player, index) => (
+                {players
+                  .sort((a, b) => {
+                    // Host always comes first (OPERATOR-01)
+                    if (a.isHost && !b.isHost) return -1;
+                    if (!a.isHost && b.isHost) return 1;
+                    return 0;
+                  })
+                  .map((player, index) => (
                   <div
                     key={player.id}
                     className={`${player.ready ? 'tactical-overlay' : 'tactical-overlay-red'} rounded-lg p-4 sm:p-6 animate-slideLeft relative hud-corner`}
@@ -967,10 +974,14 @@ export default function Game() {
                     <div className="flex justify-between items-start mb-3 sm:mb-4">
                       <div>
                         <div className="font-orbitron text-sm sm:text-base lg:text-lg font-bold text-green-400">
-                          {player.id === socketId ? "OPERATOR-01" : "OPERATOR-02"}
+                          {player.isHost ? "OPERATOR-01" : "OPERATOR-02"}
+                          {player.id === socketId && (
+                            <span className="text-xs text-blue-400 ml-2">(YOU)</span>
+                          )}
                         </div>
                         <div className="text-xs text-gray-400 font-orbitron">
                           ID: {player.id.slice(0, 8).toUpperCase()}
+                          {player.isHost && <span className=" text-yellow-400 ml-1">HOST</span>}
                         </div>
                       </div>
                       <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full ${player.ready ? 'bg-green-400 animate-pulse' : 'bg-red-500'} border-2 border-current`}></div>
