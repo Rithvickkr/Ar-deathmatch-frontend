@@ -17,6 +17,7 @@ interface RoomState {
   isInRoom: boolean;
   roomCode: string | null;
   isHost: boolean;
+  winnerIsHost?: boolean;
 }
 
 interface RoomInfo {
@@ -200,27 +201,37 @@ export default function Game() {
       
       setPlayers(updatedPlayers);
       
-      // Check if both players are ready for countdown
-      console.log("=== COUNTDOWN CHECK ===");
-      console.log("Player count:", updatedPlayers.length);
-      console.log("Game status:", gameStatus);
-      console.log("Players ready status:", updatedPlayers.map(p => ({ id: p.id.slice(0, 8), ready: p.ready })));
-      console.log("All players ready:", updatedPlayers.every((p) => p.ready));
-      console.log("Should start countdown:", updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting");
-      
-      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
-        console.log("🚀 STARTING COUNTDOWN!");
-        startCountdown();
+      // Only check for countdown if we're in waiting status (not in game over or other states)
+      if (gameStatus === "waiting") {
+        // Check if both players are ready for countdown
+        console.log("=== COUNTDOWN CHECK ===");
+        console.log("Player count:", updatedPlayers.length);
+        console.log("Game status:", gameStatus);
+        console.log("Players ready status:", updatedPlayers.map(p => ({ id: p.id.slice(0, 8), ready: p.ready })));
+        console.log("All players ready:", updatedPlayers.every((p) => p.ready));
+        console.log("Should start countdown:", updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready));
+        
+        if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready)) {
+          console.log("🚀 STARTING COUNTDOWN!");
+          startCountdown();
+        } else {
+          console.log("❌ Not starting countdown - conditions not met");
+        }
+        console.log("=====================");
       } else {
-        console.log("❌ Not starting countdown - conditions not met");
+        console.log(`Skipping countdown check - game status is: ${gameStatus}`);
       }
-      console.log("=====================");
     });
 
-    socketRef.current.on("gameOver", ({ winner }: { winner: string }) => {
-      console.log("Game over, winner:", winner);
+    socketRef.current.on("gameOver", ({ winner, winnerIsHost }: { winner: string, winnerIsHost: boolean }) => {
+      console.log("Game over, winner:", winner, "winnerIsHost:", winnerIsHost);
+      console.log("Current room state:", roomState);
       setGameStatus("over");
       setWinner(winner);
+      
+      // Store winner role info for victory/defeat determination
+      setRoomState(prev => ({ ...prev, winnerIsHost }));
+      
       if (hitSoundRef.current) {
         hitSoundRef.current.play().catch((err: Error) => console.error("Hit sound error:", err));
       }
@@ -370,6 +381,12 @@ export default function Game() {
 
   // Start 5-second countdown when both players are ready
   const startCountdown = () => {
+    // Don't start countdown if game is over or not in waiting state
+    if (gameStatus !== "waiting") {
+      console.log(`Countdown cancelled - game status is: ${gameStatus}`);
+      return;
+    }
+    
     let timeLeft = 5;
     setCountdown(timeLeft);
     const timer = setInterval(() => {
@@ -378,7 +395,8 @@ export default function Game() {
       if (timeLeft <= 0) {
         clearInterval(timer);
         setCountdown(null);
-        setGameStatus("ready");
+        // Only change to ready if still in waiting state
+        setGameStatus(prev => prev === "waiting" ? "ready" : prev);
       }
     }, 1000);
   };
@@ -604,19 +622,38 @@ export default function Game() {
 
   const handleReset = () => {
     console.log("Resetting game...");
-    setGameStatus("waiting");
+    // Reset local state first
     setWinner(null);
     setCountdown(null);
+    // Clear winner role info
+    setRoomState(prev => ({ ...prev, winnerIsHost: undefined }));
+    
+    // Emit reset to backend
     socketRef.current?.emit("resetGame");
+    
+    // Set game status to waiting (not ready) so players need to ready up again
+    setGameStatus("waiting");
   };
 
   const leaveRoom = () => {
-    setRoomState({ isInRoom: false, roomCode: null, isHost: false });
+    // Clear all game state
+    setWinner(null);
+    setCountdown(null);
     setGameStatus("lobby");
     setPlayers([]);
+    setRoomState({ isInRoom: false, roomCode: null, isHost: false, winnerIsHost: undefined });
+    
     if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current.connect();
+      // Emit leave room event to backend to clean up properly before disconnecting
+      socketRef.current.emit("leaveRoom");
+      
+      // Small delay to ensure the leave event is processed
+      setTimeout(() => {
+        if (socketRef.current) {
+          socketRef.current.disconnect();
+          socketRef.current.connect();
+        }
+      }, 100);
     }
   };
 
@@ -1377,17 +1414,18 @@ export default function Game() {
           <div className="tactical-overlay rounded-lg p-6 sm:p-8 lg:p-12 text-center animate-fadeIn hud-corner relative max-w-sm sm:max-w-md">
             <div className="scanline"></div>
             <div className="text-6xl sm:text-7xl lg:text-8xl mb-6 sm:mb-8 animate-pulse">
-              {winner === socketId ? "🏆" : "💀"}
+              {/* Use role-based victory detection instead of socket ID */}
+              {roomState.winnerIsHost === roomState.isHost ? "🏆" : "💀"}
             </div>
             <h1 className="font-orbitron text-2xl sm:text-3xl lg:text-4xl font-black mb-3 sm:mb-4 neon-text">
-              {winner === socketId ? (
+              {roomState.winnerIsHost === roomState.isHost ? (
                 <span className="text-green-400">MISSION COMPLETE</span>
               ) : (
                 <span className="text-red-400">KIA</span>
               )}
             </h1>
             <p className="text-sm sm:text-base lg:text-lg mb-6 sm:mb-8 text-gray-400 font-orbitron">
-              {winner === socketId ? "TARGET ELIMINATED" : "OPERATOR DOWN"}
+              {roomState.winnerIsHost === roomState.isHost ? "TARGET ELIMINATED" : "OPERATOR DOWN"}
             </p>
             <div className="space-y-3 sm:space-y-4">
               <div className="text-xs sm:text-sm text-gray-400 font-orbitron">
