@@ -244,7 +244,30 @@ export default function Game() {
       }
     });
 
+    // Add error handler for setReady failures
+    socketRef.current.on("setReadyError", ({ message }: { message: string }) => {
+      console.error("❌ setReady error from server:", message);
+      alert(`Failed to update ready status: ${message}`);
+    });
+
+    // Add heartbeat mechanism to maintain connection and room mapping
+    const heartbeatInterval = setInterval(() => {
+      if (socketRef.current?.connected && roomState.isInRoom) {
+        socketRef.current.emit("heartbeat");
+      }
+    }, 10000); // Every 10 seconds
+
+    socketRef.current.on("heartbeatAck", ({ roomCode, playerId }: { roomCode: string | null, playerId: string }) => {
+      if (!roomCode && roomState.isInRoom) {
+        console.warn("⚠️ Server lost room mapping, attempting to rejoin room");
+        // Could implement room rejoin logic here if needed
+      }
+    });
+
     return () => {
+      // Clear heartbeat interval
+      clearInterval(heartbeatInterval);
+      
       // Only disconnect in production to prevent hot reload issues in development
       if (process.env.NODE_ENV === 'production') {
         socketRef.current?.disconnect();
