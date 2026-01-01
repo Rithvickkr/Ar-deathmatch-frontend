@@ -56,6 +56,19 @@ export default function Game() {
   const netRef = useRef<posenet.PoseNet | null>(null);
   const [selectedGun, setSelectedGun] = useState<"sniper" | "pistol" | "shotgun">("pistol");
 
+  // Add refs to access current state in event handlers
+  const gameStatusRef = useRef(gameStatus);
+  const roomStateRef = useRef(roomState);
+  
+  // Update refs when state changes
+  useEffect(() => {
+    gameStatusRef.current = gameStatus;
+  }, [gameStatus]);
+  
+  useEffect(() => {
+    roomStateRef.current = roomState;
+  }, [roomState]);
+
   useEffect(() => {
     // Request camera permission early to populate device details
     const requestCameraPermission = async () => {
@@ -212,12 +225,16 @@ export default function Game() {
       setPlayers(updatedPlayers);
       
       // Only check for countdown if we're in waiting status and actually in a room
-      if (gameStatus === "waiting" && roomState.isInRoom) {
+      // Use refs to get current state values instead of stale closure values
+      const currentGameStatus = gameStatusRef.current;
+      const currentRoomState = roomStateRef.current;
+      
+      if (currentGameStatus === "waiting" && currentRoomState.isInRoom) {
         // Check if both players are ready for countdown
         console.log("=== COUNTDOWN CHECK ===");
         console.log("Player count:", updatedPlayers.length);
-        console.log("Game status:", gameStatus);
-        console.log("Room state:", roomState);
+        console.log("Game status (current):", currentGameStatus);
+        console.log("Room state (current):", currentRoomState);
         console.log("Players ready status:", updatedPlayers.map(p => ({ id: p.id.slice(0, 8), ready: p.ready })));
         console.log("All players ready:", updatedPlayers.every((p) => p.ready));
         console.log("Should start countdown:", updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready));
@@ -230,7 +247,7 @@ export default function Game() {
         }
         console.log("=====================");
       } else {
-        console.log(`Skipping countdown check - game status: ${gameStatus}, in room: ${roomState.isInRoom}`);
+        console.log(`Skipping countdown check - game status: ${currentGameStatus}, in room: ${currentRoomState.isInRoom}`);
       }
     });
 
