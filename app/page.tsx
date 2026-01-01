@@ -31,6 +31,7 @@ export default function Game() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [gameStatus, setGameStatus] = useState<"lobby" | "waiting" | "ready" | "over">("lobby");
   const [socketId, setSocketId] = useState<string | null>(null);
+  const [winner, setWinner] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [roomState, setRoomState] = useState<RoomState>({ 
@@ -226,6 +227,8 @@ export default function Game() {
       console.log("Game over, winner:", winner, "winnerIsHost:", winnerIsHost);
       console.log("Current room state:", roomState);
       setGameStatus("over");
+      console.log("Setting winner to:", winner);
+      setWinner(winner);
       
       // Store winner role info for victory/defeat determination
       setRoomState(prev => ({ ...prev, winnerIsHost }));
@@ -241,7 +244,7 @@ export default function Game() {
         socketRef.current?.disconnect();
       }
     };
-  }, []); // Remove gameStatus dependency since we don't want to restart socket on every game state change
+  }, [gameStatus]);
 
   // Start camera only when in waiting or ready state
   useEffect(() => {
@@ -621,6 +624,7 @@ export default function Game() {
   const handleReset = () => {
     console.log("Resetting game...");
     // Reset local state first
+    setWinner(null);
     setCountdown(null);
     // Clear winner role info
     setRoomState(prev => ({ ...prev, winnerIsHost: undefined }));
@@ -634,6 +638,7 @@ export default function Game() {
 
   const leaveRoom = () => {
     // Clear all game state
+    setWinner(null);
     setCountdown(null);
     setGameStatus("lobby");
     setPlayers([]);
@@ -1244,7 +1249,7 @@ export default function Game() {
                   onClick={() => window.location.reload()}
                   className="bg-red-600/20 border-2 border-red-400 text-red-400 font-orbitron font-bold px-6 sm:px-8 py-2 sm:py-3 text-sm sm:text-base rounded-lg transition-all transform hover:scale-105 hover:bg-red-600/30"
                 >
-                  RETRY SYSTEM
+                   RETRY SYSTEM
                 </button>
               </div>
             </div>
