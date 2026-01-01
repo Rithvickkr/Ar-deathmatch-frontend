@@ -106,8 +106,10 @@ export default function Game() {
 
     socketRef.current.on("connect", () => {
       console.log("Connected to server:", socketRef.current!.id);
-      setSocketId(socketRef.current!.id || null);
+      const newSocketId = socketRef.current!.id || null;
+      setSocketId(newSocketId);
       setConnectionStatus("connected");
+      console.log("Set socketId to:", newSocketId);
       // Don't auto-join game anymore - user must choose room
     });
 
@@ -138,12 +140,28 @@ export default function Game() {
 
     socketRef.current.on("roomCreated", ({ roomCode }: { roomCode: string }) => {
       console.log("Room created:", roomCode);
+      console.log("Current socketId when room created:", socketId);
+      console.log("Socket.io ID when room created:", socketRef.current?.id);
+      // Update socketId to match current socket
+      const currentSocketId = socketRef.current?.id;
+      if (currentSocketId && currentSocketId !== socketId) {
+        console.log(`Updating socketId from ${socketId} to ${currentSocketId}`);
+        setSocketId(currentSocketId);
+      }
       setRoomState({ isInRoom: true, roomCode, isHost: true });
       setGameStatus("waiting");
     });
 
     socketRef.current.on("roomJoined", ({ roomCode }: { roomCode: string }) => {
       console.log("Room joined:", roomCode);
+      console.log("Current socketId when room joined:", socketId);
+      console.log("Socket.io ID when room joined:", socketRef.current?.id);
+      // Update socketId to match current socket
+      const currentSocketId = socketRef.current?.id;
+      if (currentSocketId && currentSocketId !== socketId) {
+        console.log(`Updating socketId from ${socketId} to ${currentSocketId}`);
+        setSocketId(currentSocketId);
+      }
       setRoomState({ isInRoom: true, roomCode, isHost: false });
       setGameStatus("waiting");
     });
@@ -170,12 +188,33 @@ export default function Game() {
     socketRef.current.on("playerUpdate", (updatedPlayers: Player[]) => {
       console.log("Player update received:", updatedPlayers);
       console.log("Current socketId:", socketId);
+      console.log("Socket.io ID during player update:", socketRef.current?.id);
       console.log("Players with isHost property:", updatedPlayers.map(p => ({ id: p.id, isHost: p.isHost })));
-      setPlayers(updatedPlayers);
-      // Check if both players are ready for countdown
-      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
-        startCountdown();
+      
+      // Ensure socketId is synced with current socket before processing players
+      const currentSocketId = socketRef.current?.id;
+      if (currentSocketId && currentSocketId !== socketId) {
+        console.log(`Syncing socketId from ${socketId} to ${currentSocketId} during playerUpdate`);
+        setSocketId(currentSocketId);
       }
+      
+      setPlayers(updatedPlayers);
+      
+      // Check if both players are ready for countdown
+      console.log("=== COUNTDOWN CHECK ===");
+      console.log("Player count:", updatedPlayers.length);
+      console.log("Game status:", gameStatus);
+      console.log("Players ready status:", updatedPlayers.map(p => ({ id: p.id.slice(0, 8), ready: p.ready })));
+      console.log("All players ready:", updatedPlayers.every((p) => p.ready));
+      console.log("Should start countdown:", updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting");
+      
+      if (updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready) && gameStatus === "waiting") {
+        console.log("🚀 STARTING COUNTDOWN!");
+        startCountdown();
+      } else {
+        console.log("❌ Not starting countdown - conditions not met");
+      }
+      console.log("=====================");
     });
 
     socketRef.current.on("gameOver", ({ winner }: { winner: string }) => {
@@ -188,13 +227,16 @@ export default function Game() {
     });
 
     return () => {
-      socketRef.current?.disconnect();
+      // Only disconnect in production to prevent hot reload issues in development
+      if (process.env.NODE_ENV === 'production') {
+        socketRef.current?.disconnect();
+      }
     };
   }, [gameStatus]);
 
-  // Start camera only when in waiting state
+  // Start camera only when in waiting or ready state
   useEffect(() => {
-    if (gameStatus !== "waiting" || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
+    if ((gameStatus !== "waiting" && gameStatus !== "ready") || !videoRef.current || !canvasRef.current || !selectedDeviceId) {
       console.log("Not ready yet:", {
         gameStatus,
         video: !!videoRef.current,
@@ -376,9 +418,15 @@ export default function Game() {
   };
 
   const handleShoot = async () => {
-    console.log("Shoot button pressed");
+    console.log("🔫 Shoot button pressed");
+    console.log("Current game status:", gameStatus);
+    console.log("Socket connected:", socketRef.current?.connected);
+    console.log("NetRef exists:", !!netRef.current);
+    console.log("VideoRef exists:", !!videoRef.current);
+    console.log("Is reloading:", isReloading);
+    
     if (!socketRef.current || !netRef.current || !videoRef.current || isReloading) {
-      console.log("Missing required refs or reloading:", {
+      console.log("❌ Missing required refs or reloading:", {
         socket: !!socketRef.current,
         net: !!netRef.current,
         video: !!videoRef.current,
@@ -390,11 +438,14 @@ export default function Game() {
     const now = Date.now();
     // Cooldowns per gun
     const cooldownTime = selectedGun === "pistol" ? 200 : selectedGun === "sniper" ? 400 : 600; // Pistol: 200ms, Sniper: 400ms, Shotgun: 600ms
+    console.log(`Cooldown check: now(${now}) - lastShot(${lastShot}) = ${now - lastShot}, cooldown: ${cooldownTime}`);
+    
     if (now - lastShot < cooldownTime) {
-      console.log("Cooldown active, skipping shot");
+      console.log("❌ Cooldown active, skipping shot");
       return;
     }
 
+    console.log("✅ Proceeding with shot logic");
     // Play sound immediately on button press
     if (selectedGun === "sniper" && sniperSoundRef.current) {
       sniperSoundRef.current.currentTime = 0; // Reset to start
@@ -532,7 +583,11 @@ export default function Game() {
       if (hitDetected) {
         console.log(`${hitType} confirmed with best score: ${bestScore}, Damage set to: ${damage}`);
         console.log("Final hit detected with damage:", damage);
-        socketRef.current.emit("shoot", { shooterId: socketId, damage });
+        
+        // Use current socket ID from socket ref, not state
+        const currentSocketId = socketRef.current.id;
+        console.log(`Emitting shoot with shooterId: ${currentSocketId}`);
+        socketRef.current.emit("shoot", { shooterId: currentSocketId, damage });
         console.log("Shoot event emitted");
         // Play gun sound again on confirmed hit
        
@@ -566,12 +621,39 @@ export default function Game() {
   };
 
   const toggleReady = () => {
-    if (socketRef.current && socketId) {
-      const player = players.find((p) => p.id === socketId);
+    console.log("toggleReady called");
+    console.log("Socket connected:", socketRef.current?.connected);
+    console.log("Room state:", roomState);
+    
+    if (socketRef.current && socketRef.current.connected && roomState.isInRoom) {
+      // Find the current player based on host status, not socket ID
+      const player = players.find((p) => p.isHost === roomState.isHost);
+      console.log("Found current player:", player);
+      console.log("Current socket ID:", socketRef.current.id);
+      
       if (player) {
-        socketRef.current.emit("setReady", { playerId: socketId, ready: !player.ready });
-        console.log("Toggled ready status:", !player.ready);
+        const newReadyState = !player.ready;
+        console.log(`Emitting setReady for player with ready: ${newReadyState}`);
+        
+        // Use the current socket ID, not the stored player ID
+        const currentSocketId = socketRef.current.id;
+        if (socketRef.current.connected && currentSocketId) {
+          socketRef.current.emit("setReady", { 
+            playerId: currentSocketId, 
+            ready: newReadyState,
+            isHost: roomState.isHost // Send host status for verification
+          });
+          console.log("Successfully emitted setReady event with current socket ID:", currentSocketId);
+        } else {
+          console.log("Socket not connected or no socket ID, cannot emit setReady");
+        }
+      } else {
+        console.log("Current player not found in players array");
       }
+    } else {
+      console.log("Cannot toggle ready - missing requirements");
+      console.log("- socket connected:", socketRef.current?.connected);
+      console.log("- in room:", roomState.isInRoom);
     }
   };
 
@@ -967,7 +1049,13 @@ export default function Game() {
                     if (!a.isHost && b.isHost) return 1;
                     return 0;
                   })
-                  .map((player, index) => (
+                  .map((player, index) => {
+                    // Use room state to determine if this is the current player
+                    // If we're in a room and this player's isHost status matches our room state, it's us
+                    const isCurrentPlayer = roomState.isInRoom && 
+                      ((roomState.isHost && player.isHost) || (!roomState.isHost && !player.isHost));
+                    
+                    return (
                   <div
                     key={player.id}
                     className={`${player.ready ? 'tactical-overlay' : 'tactical-overlay-red'} rounded-lg p-4 sm:p-6 animate-slideLeft relative hud-corner`}
@@ -977,7 +1065,7 @@ export default function Game() {
                       <div>
                         <div className="font-orbitron text-sm sm:text-base lg:text-lg font-bold text-green-400">
                           {player.isHost ? "OPERATOR-01" : "OPERATOR-02"}
-                          {player.id === socketId && (
+                          {isCurrentPlayer && (
                             <span className="text-xs text-blue-400 ml-2">(YOU)</span>
                           )}
                         </div>
@@ -1002,23 +1090,28 @@ export default function Game() {
                       </div>
                     </div>
                     
-                    {player.id === socketId && (
-                      <>
-                        {console.log(`Rendering ready button for player ${player.id}, socketId: ${socketId}, match: ${player.id === socketId}`)}
-                        <button
-                          onClick={toggleReady}
-                          className={`w-full mt-3 sm:mt-4 py-2 sm:py-3 px-3 sm:px-4 rounded-lg font-orbitron font-bold text-xs sm:text-sm transition-all duration-300 transform hover:scale-105 ${
-                            player.ready
-                              ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30"
-                              : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/30"
-                          }`}
-                        >
-                          {player.ready ? "█ READY FOR COMBAT" : "◌ ENTER READY STATE"}
-                        </button>
-                      </>
+                    {isCurrentPlayer && (
+                      <button
+                        onClick={() => {
+                          console.log("Ready button clicked!", {
+                            isCurrentPlayer,
+                            roomState,
+                            player: { id: player.id.slice(0, 8), isHost: player.isHost, ready: player.ready }
+                          });
+                          toggleReady();
+                        }}
+                        className={`w-full mt-3 sm:mt-4 py-2 sm:py-3 px-3 sm:px-4 rounded-lg font-orbitron font-bold text-xs sm:text-sm transition-all duration-300 transform hover:scale-105 ${
+                          player.ready
+                            ? "bg-green-600/20 border-2 border-green-400 text-green-400 hover:bg-green-600/30"
+                            : "bg-red-600/20 border-2 border-red-400 text-red-400 hover:bg-red-600/30"
+                        }`}
+                        type="button"
+                      >
+                        {player.ready ? "█ READY FOR COMBAT" : "◌ ENTER READY STATE"}
+                      </button>
                     )}
                   </div>
-                ))}
+                )})}
                 {players.length < 2 && (
                   <div className="tactical-overlay-yellow rounded-lg p-4 sm:p-6 opacity-60 animate-pulse hud-corner relative">
                     <div className="font-orbitron text-sm sm:text-base lg:text-lg font-bold text-yellow-400 mb-2">
@@ -1140,70 +1233,74 @@ export default function Game() {
               <div className="absolute inset-0 pointer-events-none">
                 {/* Top HUD - Player health bars always visible */}
                 <div className="absolute top-1 md:top-2 lg:top-4 left-1 md:left-2 lg:left-4 right-1 md:right-2 lg:right-4 flex justify-between items-start gap-1 md:gap-2 lg:gap-4 animate-slideDown">
-                  {/* Left Operator Panel */}
+                  {/* Left Panel - YOUR HEALTH */}
                   <div className="tactical-overlay rounded p-1 md:p-2 lg:p-4 min-w-16 md:min-w-20 lg:min-w-48 max-w-xs hud-corner relative animate-slideLeft text-xs md:text-sm">
                     <div className="scanline"></div>
-                    {players.map((player) => (
-                      player.id === socketId && (
-                        <div key={player.id}>
-                          <div className="flex justify-between items-center mb-1 md:mb-2">
-                            <div className="font-orbitron font-bold text-green-400 text-xs md:text-sm">
-                              OP-01
-                            </div>
-                            <div className="text-xs text-gray-400 hidden lg:block">
-                              {new Date().toLocaleTimeString()}
-                            </div>
+                    {players.filter(player => {
+                      // Show current player's own health (same role)
+                      return roomState.isInRoom && 
+                        ((roomState.isHost && player.isHost) || (!roomState.isHost && !player.isHost));
+                    }).map((player) => (
+                      <div key={player.id}>
+                        <div className="flex justify-between items-center mb-1 md:mb-2">
+                          <div className="font-orbitron font-bold text-green-400 text-xs md:text-sm">
+                            YOU
                           </div>
-                          <div className="space-y-1">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-xs">HP:</span>
-                              <span className="text-green-400 font-orbitron font-bold ammo-counter text-xs">
-                                {player.health}%
-                              </span>
-                            </div>
-                            <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-500 ${
-                                  player.health > 70 ? "bg-green-400" : 
-                                  player.health > 30 ? "bg-yellow-400" : "bg-red-400"
-                                }`}
-                                style={{ width: `${player.health}%` }}
-                              ></div>
-                            </div>
+                          <div className="text-xs text-gray-400 hidden lg:block">
+                            {new Date().toLocaleTimeString()}
                           </div>
                         </div>
-                      )
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400 text-xs">HP:</span>
+                            <span className="text-green-400 font-orbitron font-bold ammo-counter text-xs">
+                              {player.health}%
+                            </span>
+                          </div>
+                          <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-500 ${
+                                player.health > 70 ? "bg-green-400" : 
+                                player.health > 30 ? "bg-yellow-400" : "bg-red-400"
+                              }`}
+                              style={{ width: `${player.health}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
                     ))}
                   </div>
 
-                  {/* Right Enemy Panel */}
+                  {/* Right Panel - ENEMY HEALTH */}
                   <div className="tactical-overlay-red rounded p-1 md:p-2 lg:p-4 min-w-16 md:min-w-20 lg:min-w-48 max-w-xs hud-corner relative animate-slideRight text-xs md:text-sm">
                     <div className="scanline"></div>
-                    {players.map((player) => (
-                      player.id !== socketId && (
-                        <div key={player.id}>
-                          <div className="flex justify-between items-center mb-1 md:mb-2">
-                            <div className="font-orbitron font-bold text-red-400 text-xs md:text-sm">
-                              HOSTILE
-                            </div>
-                            <div className="w-2 h-2 md:w-3 md:h-3 bg-red-400 rounded-full animate-pulse"></div>
+                    {players.filter(player => {
+                      // Show enemy player's health (opposite role)
+                      return roomState.isInRoom && 
+                        ((roomState.isHost && !player.isHost) || (!roomState.isHost && player.isHost));
+                    }).map((player) => (
+                      <div key={player.id}>
+                        <div className="flex justify-between items-center mb-1 md:mb-2">
+                          <div className="font-orbitron font-bold text-red-400 text-xs md:text-sm">
+                            ENEMY
                           </div>
-                          <div className="space-y-1">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 text-xs">THREAT:</span>
-                              <span className="text-red-400 font-orbitron font-bold text-xs">
-                                {player.health > 70 ? "HIGH" : player.health > 30 ? "MED" : "LOW"}
-                              </span>
-                            </div>
-                            <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
-                              <div
-                                className="h-full bg-red-400 transition-all duration-500"
-                                style={{ width: `${player.health}%` }}
-                              ></div>
-                            </div>
+                          <div className="w-2 h-2 md:w-3 md:h-3 bg-red-400 rounded-full animate-pulse"></div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400 text-xs">HP:</span>
+                            <span className="text-red-400 font-orbitron font-bold text-xs">
+                              {player.health}%
+                            </span>
+                          </div>
+                          <div className="health-bar bg-gray-800 rounded-full h-1 md:h-2 overflow-hidden">
+                            <div
+                              className="h-full bg-red-400 transition-all duration-500"
+                              style={{ width: `${player.health}%` }}
+                            ></div>
                           </div>
                         </div>
-                      )
+                      </div>
                     ))}
                   </div>
                 </div>
