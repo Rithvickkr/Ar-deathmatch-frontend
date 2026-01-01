@@ -155,8 +155,10 @@ export default function Game() {
         console.log(`Updating socketId from ${socketId} to ${currentSocketId}`);
         setSocketId(currentSocketId);
       }
+      console.log("Setting room state and game status to waiting...");
       setRoomState({ isInRoom: true, roomCode, isHost: true });
       setGameStatus("waiting");
+      console.log("Room creation complete - should be in waiting state");
     });
 
     socketRef.current.on("roomJoined", ({ roomCode }: { roomCode: string }) => {
@@ -169,8 +171,10 @@ export default function Game() {
         console.log(`Updating socketId from ${socketId} to ${currentSocketId}`);
         setSocketId(currentSocketId);
       }
+      console.log("Setting room state and game status to waiting...");
       setRoomState({ isInRoom: true, roomCode, isHost: false });
       setGameStatus("waiting");
+      console.log("Room join complete - should be in waiting state");
     });
 
     socketRef.current.on("joinError", ({ message }: { message: string }) => {
@@ -207,12 +211,13 @@ export default function Game() {
       
       setPlayers(updatedPlayers);
       
-      // Only check for countdown if we're in waiting status (not in game over or other states)
-      if (gameStatus === "waiting") {
+      // Only check for countdown if we're in waiting status and actually in a room
+      if (gameStatus === "waiting" && roomState.isInRoom) {
         // Check if both players are ready for countdown
         console.log("=== COUNTDOWN CHECK ===");
         console.log("Player count:", updatedPlayers.length);
         console.log("Game status:", gameStatus);
+        console.log("Room state:", roomState);
         console.log("Players ready status:", updatedPlayers.map(p => ({ id: p.id.slice(0, 8), ready: p.ready })));
         console.log("All players ready:", updatedPlayers.every((p) => p.ready));
         console.log("Should start countdown:", updatedPlayers.length === 2 && updatedPlayers.every((p) => p.ready));
@@ -225,7 +230,7 @@ export default function Game() {
         }
         console.log("=====================");
       } else {
-        console.log(`Skipping countdown check - game status is: ${gameStatus}`);
+        console.log(`Skipping countdown check - game status: ${gameStatus}, in room: ${roomState.isInRoom}`);
       }
     });
 
