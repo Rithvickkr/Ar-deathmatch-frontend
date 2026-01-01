@@ -25,6 +25,7 @@ interface RoomInfo {
   code: string;
   players: Player[];
   createdAt: string;
+  
 }
 
 export default function Game() {
