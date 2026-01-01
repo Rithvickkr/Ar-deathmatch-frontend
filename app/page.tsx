@@ -31,7 +31,6 @@ export default function Game() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [gameStatus, setGameStatus] = useState<"lobby" | "waiting" | "ready" | "over">("lobby");
   const [socketId, setSocketId] = useState<string | null>(null);
-  const [winner, setWinner] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [roomState, setRoomState] = useState<RoomState>({ 
@@ -227,7 +226,6 @@ export default function Game() {
       console.log("Game over, winner:", winner, "winnerIsHost:", winnerIsHost);
       console.log("Current room state:", roomState);
       setGameStatus("over");
-      setWinner(winner);
       
       // Store winner role info for victory/defeat determination
       setRoomState(prev => ({ ...prev, winnerIsHost }));
@@ -243,7 +241,7 @@ export default function Game() {
         socketRef.current?.disconnect();
       }
     };
-  }, [gameStatus]);
+  }, []); // Remove gameStatus dependency since we don't want to restart socket on every game state change
 
   // Start camera only when in waiting or ready state
   useEffect(() => {
@@ -623,7 +621,6 @@ export default function Game() {
   const handleReset = () => {
     console.log("Resetting game...");
     // Reset local state first
-    setWinner(null);
     setCountdown(null);
     // Clear winner role info
     setRoomState(prev => ({ ...prev, winnerIsHost: undefined }));
@@ -637,7 +634,6 @@ export default function Game() {
 
   const leaveRoom = () => {
     // Clear all game state
-    setWinner(null);
     setCountdown(null);
     setGameStatus("lobby");
     setPlayers([]);
