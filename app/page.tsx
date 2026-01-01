@@ -95,15 +95,20 @@ export default function Game() {
     const serverUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://ar-game-server.onrender.com";
     
     console.log("Connecting to server:", serverUrl);
+    console.log("Environment:", process.env.NODE_ENV);
+    console.log("NEXT_PUBLIC_BACKEND_URL:", process.env.NEXT_PUBLIC_BACKEND_URL);
     
     socketRef.current = io(serverUrl, {
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 20000,
-      forceNew: false,
-      transports: ['websocket', 'polling']
+      timeout: 30000, // Increased timeout for production
+      forceNew: true, // Force new connection for production
+      transports: ['polling', 'websocket'], // Prioritize polling for production
+      upgrade: true,
+      rememberUpgrade: true,
+      withCredentials: true
     });
 
     socketRef.current.on("connect", () => {
@@ -664,35 +669,63 @@ export default function Game() {
     console.log("Socket connected:", socketRef.current?.connected);
     console.log("Room state:", roomState);
     
-    if (socketRef.current && socketRef.current.connected && roomState.isInRoom) {
-      // Find the current player based on host status, not socket ID
-      const player = players.find((p) => p.isHost === roomState.isHost);
-      console.log("Found current player:", player);
-      console.log("Current socket ID:", socketRef.current.id);
+    if (!socketRef.current) {
+      console.error("Socket not initialized");
+      return;
+    }
+    
+    if (!socketRef.current.connected) {
+      console.error("Socket not connected");
+      return;
+    }
+    
+    if (!roomState.isInRoom) {
+      console.error("Not in a room");
+      return;
+    }
+    
+    // Find the current player based on host status, not socket ID
+    const player = players.find((p) => p.isHost === roomState.isHost);
+    console.log("Found current player:", player);
+    console.log("Current socket ID:", socketRef.current.id);
+    
+    if (player) {
+      const newReadyState = !player.ready;
+      console.log(`Emitting setReady for player with ready: ${newReadyState}`);
       
-      if (player) {
-        const newReadyState = !player.ready;
-        console.log(`Emitting setReady for player with ready: ${newReadyState}`);
-        
-        // Use the current socket ID, not the stored player ID
-        const currentSocketId = socketRef.current.id;
-        if (socketRef.current.connected && currentSocketId) {
+      // Use the current socket ID, not the stored player ID
+      const currentSocketId = socketRef.current.id;
+      if (socketRef.current.connected && currentSocketId) {
+        try {
           socketRef.current.emit("setReady", { 
             playerId: currentSocketId, 
             ready: newReadyState,
             isHost: roomState.isHost // Send host status for verification
           });
           console.log("Successfully emitted setReady event with current socket ID:", currentSocketId);
-        } else {
-          console.log("Socket not connected or no socket ID, cannot emit setReady");
+          
+          // Add a timeout to check if the event was received
+          setTimeout(() => {
+            const updatedPlayer = players.find((p) => p.isHost === roomState.isHost);
+            if (updatedPlayer && updatedPlayer.ready === newReadyState) {
+              console.log("✅ setReady event processed successfully");
+            } else {
+              console.warn("⚠️ setReady event may not have been processed", {
+                expected: newReadyState,
+                actual: updatedPlayer?.ready
+              });
+            }
+          }, 2000);
+        } catch (error) {
+          console.error("Error emitting setReady event:", error);
         }
       } else {
-        console.log("Current player not found in players array");
+        console.log("Socket not connected or no socket ID, cannot emit setReady");
       }
     } else {
-      console.log("Cannot toggle ready - missing requirements");
-      console.log("- socket connected:", socketRef.current?.connected);
-      console.log("- in room:", roomState.isInRoom);
+      console.log("Current player not found in players array");
+      console.log("Available players:", players.map(p => ({ id: p.id.substring(0, 8), isHost: p.isHost })));
+      console.log("Looking for host status:", roomState.isHost);
     }
   };
 
