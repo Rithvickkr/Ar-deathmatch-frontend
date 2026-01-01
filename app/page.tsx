@@ -436,11 +436,14 @@ export default function Game() {
   // Start 5-second countdown when both players are ready
   const startCountdown = () => {
     // Don't start countdown if game is over or not in waiting state
-    if (gameStatus !== "waiting") {
-      console.log(`Countdown cancelled - game status is: ${gameStatus}`);
+    // Use ref to get current state value
+    const currentGameStatus = gameStatusRef.current;
+    if (currentGameStatus !== "waiting") {
+      console.log(`Countdown cancelled - game status is: ${currentGameStatus}`);
       return;
     }
     
+    console.log(`Starting countdown - game status confirmed: ${currentGameStatus}`);
     let timeLeft = 5;
     setCountdown(timeLeft);
     const timer = setInterval(() => {
