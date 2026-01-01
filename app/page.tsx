@@ -100,11 +100,11 @@ export default function Game() {
     
     socketRef.current = io(serverUrl, {
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 5, // Reduced attempts
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 30000, // Increased timeout for production
-      forceNew: true, // Force new connection for production
+      timeout: 20000, // Reduced timeout
+      forceNew: false, // Don't force new connections
       transports: ['polling', 'websocket'], // Prioritize polling for production
       upgrade: true,
       rememberUpgrade: true,
@@ -268,12 +268,14 @@ export default function Game() {
       // Clear heartbeat interval
       clearInterval(heartbeatInterval);
       
-      // Only disconnect in production to prevent hot reload issues in development
+      // Only disconnect when component unmounts completely, not on re-renders
       if (process.env.NODE_ENV === 'production') {
+        // Only disconnect if we're actually unmounting, not just re-rendering
+        console.log("Component unmounting - disconnecting socket");
         socketRef.current?.disconnect();
       }
     };
-  }, [gameStatus]);
+  }, []); // Remove gameStatus dependency to prevent reconnection loop
 
   // Start camera only when in waiting or ready state
   useEffect(() => {
@@ -674,16 +676,8 @@ export default function Game() {
     setRoomState({ isInRoom: false, roomCode: null, isHost: false, winnerIsHost: undefined });
     
     if (socketRef.current) {
-      // Emit leave room event to backend to clean up properly before disconnecting
+      // Just emit leave room event - don't disconnect/reconnect
       socketRef.current.emit("leaveRoom");
-      
-      // Small delay to ensure the leave event is processed
-      setTimeout(() => {
-        if (socketRef.current) {
-          socketRef.current.disconnect();
-          socketRef.current.connect();
-        }
-      }, 100);
     }
   };
 
